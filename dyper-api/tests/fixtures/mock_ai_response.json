@@ -1,0 +1,37 @@
+{
+  "request_id": "a1b2c3d4-e5f6-7890-abcd-ef1234567890",
+  "type": "file",
+  "description": "L'image montre une scène urbaine avec plusieurs personnes marchant sur un trottoir. On distingue également des voitures garées le long de la rue et un bâtiment commercial en arrière-plan.",
+  "detections": [
+    {
+      "label": "person",
+      "confidence": 0.94,
+      "bbox": { "x": 120, "y": 80, "width": 60, "height": 180 }
+    },
+    {
+      "label": "person",
+      "confidence": 0.91,
+      "bbox": { "x": 250, "y": 95, "width": 55, "height": 170 }
+    },
+    {
+      "label": "car",
+      "confidence": 0.87,
+      "bbox": { "x": 400, "y": 150, "width": 200, "height": 120 }
+    },
+    {
+      "label": "car",
+      "confidence": 0.82,
+      "bbox": { "x": 610, "y": 155, "width": 180, "height": 110 }
+    }
+  ],
+  "summary": {
+    "total_objects": 4,
+    "classes_detected": ["person", "car"],
+    "dominant_class": "person",
+    "scene_type": "urban"
+  },
+  "model_used": "yolo26l",
+  "inference_time_ms": 312,
+  "image_size": { "width": 1280, "height": 720 },
+  "lang": "fr"
+}

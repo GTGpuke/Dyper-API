@@ -1,0 +1,57 @@
+# CI — dyper-ai (Python / FastAPI).
+# Déclenché sur chaque push ou pull request touchant le module dyper-ai.
+
+name: dyper-ai CI
+
+on:
+  push:
+    paths:
+      - 'dyper-ai/**'
+  pull_request:
+    paths:
+      - 'dyper-ai/**'
+
+jobs:
+  test:
+    name: Tests Python
+    runs-on: ubuntu-latest
+
+    defaults:
+      run:
+        # Toutes les commandes s'exécutent dans le dossier du module.
+        working-directory: dyper-ai
+
+    steps:
+      - name: Cloner le dépôt
+        uses: actions/checkout@v4
+
+      - name: Configurer Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: 'pip'
+          cache-dependency-path: |
+            dyper-ai/requirements.txt
+            dyper-ai/requirements-dev.txt
+
+      - name: Installer les dépendances de production
+        run: pip install -r requirements.txt
+
+      - name: Installer les dépendances de développement
+        run: pip install -r requirements-dev.txt
+
+      - name: Générer les fixtures de test (image blanche)
+        run: python tests/fixtures/generate_blank.py
+
+      - name: Exécuter les tests unitaires
+        run: pytest tests/unit -m unit -v
+        env:
+          AI_INTERNAL_KEY: test-key-ci
+          # Le chemin du modèle YOLO n'est pas utilisé en tests unitaires (mocks).
+          YOLO_MODEL_PATH: ../model
+
+      - name: Exécuter les tests de régression
+        run: pytest tests/regression -m regression -v
+        env:
+          AI_INTERNAL_KEY: test-key-ci
+          YOLO_MODEL_PATH: ../model
