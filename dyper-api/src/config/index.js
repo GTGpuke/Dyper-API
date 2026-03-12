@@ -24,4 +24,7 @@ module.exports = {
 
   // Délai maximum d'attente pour un appel vers dyper-ai (en millisecondes).
   requestTimeoutMs: parseInt(process.env.REQUEST_TIMEOUT_MS || '30000'),
+
+  // Clé API Groq pour le service de chat (Llama 3).
+  groqApiKey: process.env.GROQ_API_KEY || '',
 }

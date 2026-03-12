@@ -1,6 +1,7 @@
 // Composant d'affichage d'un message unique du chat selon son rôle et son type de contenu.
 import { motion } from 'framer-motion'
 import { ResultCard } from '../Result/ResultCard'
+import { FollowUpChat } from '../Result/FollowUpChat'
 import { ErrorBanner } from '../UI/ErrorBanner'
 import { formatTime } from '../../utils/formatters'
 import type { ChatMessage } from '../../types'
@@ -44,6 +45,7 @@ export function Message({ message }: MessageProps) {
       {role === 'bot' && content.type === 'result' && (
         <div className="w-full max-w-full">
           <ResultCard result={content.result} />
+          <FollowUpChat result={content.result} />
         </div>
       )}
 

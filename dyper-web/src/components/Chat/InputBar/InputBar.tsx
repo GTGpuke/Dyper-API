@@ -34,7 +34,7 @@ export function InputBar({ onSend, disabled }: InputBarProps) {
   }
 
   function handleSend() {
-    if (!text.trim() && !pendingFile) return
+    if (!pendingFile) return
     onSend(text, pendingFile ?? undefined)
     setText('')
     if (previewUrl) revokePreviewUrl(previewUrl)
@@ -61,11 +61,11 @@ export function InputBar({ onSend, disabled }: InputBarProps) {
           onChange={setText}
           onEnter={handleSend}
           disabled={disabled}
-          placeholder="Posez une question ou déposez une image…"
+          placeholder="Déposez une image, puis posez votre question…"
         />
         <div className="p-2">
           <SendButton
-            disabled={disabled || (!text.trim() && !pendingFile)}
+            disabled={disabled || !pendingFile}
             onClick={handleSend}
           />
         </div>

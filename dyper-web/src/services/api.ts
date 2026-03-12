@@ -49,3 +49,15 @@ export async function analyzePrompt(
   const { data } = await client.post<ApiResponse<AnalysisResult>>('/analyze/prompt', { prompt, lang })
   return data.result!
 }
+
+export async function chatWithResult(
+  question: string,
+  context: AnalysisResult,
+  lang = 'fr'
+): Promise<string> {
+  const { data } = await client.post<{ success: boolean; answer: string }>(
+    '/chat',
+    { question, context, lang }
+  )
+  return data.answer
+}

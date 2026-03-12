@@ -9,6 +9,7 @@ export default defineConfig({
     proxy: {
       '/analyze': { target: 'http://localhost:3000', changeOrigin: true },
       '/health':  { target: 'http://localhost:3000', changeOrigin: true },
+      '/chat':    { target: 'http://localhost:3000', changeOrigin: true },
     },
   },
 })
