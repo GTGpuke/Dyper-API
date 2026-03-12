@@ -55,9 +55,8 @@ describe('processWithAI', () => {
     // Vérifie que le payload envoyé contient les bonnes propriétés.
     const [url, payload, options] = axios.post.mock.calls[0]
     expect(url).toBe('http://localhost:8000/process')
-    expect(payload.type).toBe('file')
-    expect(payload.file_data).toBe(buffer.toString('base64'))
-    expect(payload.mimetype).toBe('image/jpeg')
+    expect(payload.type).toBe('image')
+    expect(payload.imageBase64).toBe(buffer.toString('base64'))
     expect(options.headers['X-Internal-Key']).toBe('test-key')
     expect(options.timeout).toBe(5000)
   })
@@ -74,10 +73,10 @@ describe('processWithAI', () => {
       lang: 'fr',
     })
 
-    // Assert : le type doit être "url" et l'URL doit être transmise.
+    // Assert : le type doit être "image" et l'URL doit être transmise.
     const payload = axios.post.mock.calls[0][1]
-    expect(payload.type).toBe('url')
-    expect(payload.image_url).toBe('https://example.com/image.jpg')
+    expect(payload.type).toBe('image')
+    expect(payload.imageUrl).toBe('https://example.com/image.jpg')
     expect(payload.prompt).toBe('Décris cette image.')
   })
 
@@ -143,7 +142,7 @@ describe('processWithAI', () => {
 
     // Assert.
     const payload = axios.post.mock.calls[0][1]
-    expect(payload.request_id).toBe('my-unique-id')
+    expect(payload.requestId).toBe('my-unique-id')
     expect(payload.lang).toBe('en')
   })
 })
