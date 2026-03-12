@@ -5,7 +5,7 @@ const request = require('supertest')
 const path = require('path')
 
 // ─── Mock de la configuration avant tout chargement de module ─────────────────
-jest.mock('../../../src/config', () => ({
+jest.mock('../../src/config', () => ({
   port: 3000,
   aiServiceUrl: 'http://localhost:8000',
   aiInternalKey: 'test-key',
@@ -16,17 +16,17 @@ jest.mock('../../../src/config', () => ({
 }))
 
 // ─── Mock de aiService pour éviter les appels réseau réels ───────────────────
-jest.mock('../../../src/services/aiService')
-const { processWithAI } = require('../../../src/services/aiService')
+jest.mock('../../src/services/aiService')
+const { processWithAI } = require('../../src/services/aiService')
 
 // ─── Mock du logger pour éviter la pollution des sorties de test ──────────────
-jest.mock('../../../src/utils/logger', () => ({
+jest.mock('../../src/utils/logger', () => ({
   info: jest.fn(),
   warn: jest.fn(),
   error: jest.fn(),
 }))
 
-const app = require('../../../src/app')
+const app = require('../../src/app')
 const mockAiResponse = require('../fixtures/mock_ai_response.json')
 
 // ─── Tests POST /analyze (upload fichier) ─────────────────────────────────────
@@ -86,7 +86,7 @@ describe('POST /analyze', () => {
 
   it('propage l\'erreur IA et retourne le bon statut', async () => {
     // Arrange : simulation d'une erreur de traitement IA.
-    const { AiProcessingError } = require('../../../src/utils/errors')
+    const { AiProcessingError } = require('../../src/utils/errors')
     processWithAI.mockRejectedValue(new AiProcessingError('Image corrompue.'))
 
     // Act.

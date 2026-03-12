@@ -106,7 +106,6 @@ def infer_scene(objects: List[DetectedObject]) -> Scene:
     """
     labels = [obj.label for obj in objects]
     label_set = set(labels)
-    label_conf: dict = {obj.label: obj.confidence for obj in objects}
 
     # Priorité 10 — Foule (logique basée sur le nombre de personnes).
     person_count = labels.count("person")
@@ -123,7 +122,7 @@ def infer_scene(objects: List[DetectedObject]) -> Scene:
     for triggers, scene_label, indoor in SCENE_RULES:
         matched = triggers & label_set
         if matched:
-            confs = [label_conf[lbl] for lbl in matched if lbl in label_conf]
+            confs = [obj.confidence for obj in objects if obj.label in matched]
             confidence = sum(confs) / len(confs) if confs else 0.5
             return Scene(label=scene_label, confidence=round(confidence, 4), indoor=indoor)
 

@@ -4,7 +4,7 @@
 const request = require('supertest')
 
 // ─── Mock de la configuration avant le chargement de l'app ───────────────────
-jest.mock('../../../src/config', () => ({
+jest.mock('../../src/config', () => ({
   port: 3000,
   aiServiceUrl: 'http://localhost:8000',
   aiInternalKey: 'test-key',
@@ -18,7 +18,7 @@ jest.mock('../../../src/config', () => ({
 jest.mock('axios')
 const axios = require('axios')
 
-const app = require('../../../src/app')
+const app = require('../../src/app')
 
 describe('GET /health', () => {
   beforeEach(() => {

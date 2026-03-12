@@ -26,9 +26,14 @@ def get_dominant_colors(img: Image.Image, n: int = 3) -> List[str]:
     """Retourne les n couleurs dominantes en hexadécimal, triées par fréquence décroissante."""
     small = img.convert("RGB").resize((150, 150))
     quantized = small.quantize(colors=n, method=Image.Quantize.MEDIANCUT)
-    palette = quantized.getpalette()
+    palette = quantized.getpalette() or []
+    available = len(palette) // 3
     colors = []
     for i in range(n):
-        r, g, b = palette[i * 3], palette[i * 3 + 1], palette[i * 3 + 2]
-        colors.append(f"#{r:02X}{g:02X}{b:02X}")
+        idx = min(i, available - 1) if available > 0 else 0
+        if available > 0:
+            r, g, b = palette[idx * 3], palette[idx * 3 + 1], palette[idx * 3 + 2]
+            colors.append(f"#{r:02X}{g:02X}{b:02X}")
+        else:
+            colors.append("#000000")
     return colors
