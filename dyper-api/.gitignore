@@ -4,3 +4,10 @@ dist/
 build/
 uploads/
 *.log
+logs/
+coverage/
+
+# Base de données SQLite locale (non commitée).
+data/
+*.sqlite
+*.sqlite3

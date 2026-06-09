@@ -1,7 +1,6 @@
 """Tests de régression des scénarios de scènes complets."""
 
 import pytest
-
 from app.schemas.response import DetectedObject
 from app.services.scene import infer_scene
 

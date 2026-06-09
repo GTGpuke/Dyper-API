@@ -1,14 +1,17 @@
 {
   "name": "dyper-web",
-  "version": "1.0.0",
+  "version": "2.0.0",
+  "private": true,
+  "type": "module",
   "description": "Interface utilisateur chatbot Dyper — React / TypeScript / Vite",
   "scripts": {
     "dev": "vite",
-    "build": "tsc && vite build",
+    "build": "tsc -b && vite build",
+    "lint": "eslint .",
     "preview": "vite preview"
   },
   "dependencies": {
-    "axios": "^1.7.0",
+    "axios": "^1.13.6",
     "clsx": "^2.1.0",
     "framer-motion": "^11.0.0",
     "nanoid": "^5.0.0",
@@ -17,13 +20,19 @@
     "react-dropzone": "^14.2.0"
   },
   "devDependencies": {
+    "@eslint/js": "^9.39.1",
     "@types/react": "^18.3.0",
     "@types/react-dom": "^18.3.0",
     "@vitejs/plugin-react": "^4.3.0",
     "autoprefixer": "^10.4.0",
+    "eslint": "^9.39.1",
+    "eslint-plugin-react-hooks": "^5.2.0",
+    "eslint-plugin-react-refresh": "^0.4.24",
+    "globals": "^16.5.0",
     "postcss": "^8.4.0",
     "tailwindcss": "^3.4.0",
-    "typescript": "^5.4.0",
+    "typescript": "^5.6.0",
+    "typescript-eslint": "^8.46.3",
     "vite": "^5.2.0"
   }
 }

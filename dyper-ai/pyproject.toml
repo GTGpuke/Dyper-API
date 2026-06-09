@@ -2,6 +2,27 @@
 asyncio_mode = "auto"
 testpaths = ["tests"]
 markers = [
-    "unit: tests unitaires isolés",
-    "regression: tests de régression avec fixtures"
+    "unit: tests unitaires isolés (sans modèle ni dépendances lourdes)",
+    "regression: tests de régression (peuvent nécessiter le modèle ou OpenCV)",
 ]
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+src = ["app", "tests"]
+
+[tool.ruff.lint]
+# E/W: pycodestyle, F: pyflakes, I: isort, UP: pyupgrade, B: bugbear.
+select = ["E", "W", "F", "I", "UP", "B"]
+# B008: FastAPI utilise Depends()/Header() comme valeurs par défaut d'arguments.
+ignore = ["B008", "E501"]
+
+[tool.mypy]
+python_version = "3.11"
+# Plugin pydantic : permet à mypy de comprendre BaseModel/BaseSettings (champs chargés depuis l'env).
+plugins = ["pydantic.mypy"]
+# ultralytics / cv2 n'exposent pas de stubs complets — on ignore leurs imports.
+ignore_missing_imports = true
+warn_unused_ignores = false
+disallow_untyped_defs = false
+exclude = ["tests/"]

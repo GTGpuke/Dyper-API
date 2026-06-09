@@ -1,0 +1,58 @@
+# Orchestration locale du stack Dyper : dyper-ai (8000) + dyper-api (3000) + dyper-web (5173).
+# Prérequis : placer le modèle YOLO (yolo26l.pt) dans ./model et définir les clés dans un .env racine
+# (AI_INTERNAL_KEY, APP_KEY, GROQ_API_KEY). Lancement : docker compose up --build
+services:
+  dyper-ai:
+    build: ./dyper-ai
+    environment:
+      AI_INTERNAL_KEY: ${AI_INTERNAL_KEY:-supersecretkey123}
+      YOLO_MODEL_VARIANT: ${YOLO_MODEL_VARIANT:-yolo26l}
+      YOLO_MODEL_PATH: /model
+    volumes:
+      - ./model:/model:ro
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health')"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+
+  dyper-api:
+    build: ./dyper-api
+    environment:
+      NODE_ENV: production
+      PORT: 3000
+      HOST: 0.0.0.0
+      DB_STORAGE: /app/data/dyper.sqlite
+      CORS_ORIGIN: ${CORS_ORIGIN:-http://localhost:5173}
+      APP_KEY: ${APP_KEY:?APP_KEY requis}
+      AI_SERVICE_URL: http://dyper-ai:8000
+      AI_INTERNAL_KEY: ${AI_INTERNAL_KEY:-supersecretkey123}
+      GROQ_API_KEY: ${GROQ_API_KEY:-}
+    volumes:
+      - dyper-data:/app/data
+    ports:
+      - "3000:3000"
+    depends_on:
+      dyper-ai:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://localhost:3000/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+
+  dyper-web:
+    build:
+      context: ./dyper-web
+      args:
+        VITE_API_URL: ${VITE_API_URL:-http://localhost:3000}
+        VITE_APP_KEY: ${APP_KEY:-}
+    ports:
+      - "5173:80"
+    depends_on:
+      - dyper-api
+
+volumes:
+  dyper-data:

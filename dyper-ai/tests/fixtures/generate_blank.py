@@ -1,6 +1,7 @@
 """Script de génération d'une image blanche de test (blank.jpg) dans le dossier fixtures."""
 
 import os
+
 from PIL import Image
 
 if __name__ == "__main__":

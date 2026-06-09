@@ -1,45 +1,43 @@
-# CI — dyper-web (React / TypeScript / Vite).
-# Déclenché sur chaque push ou pull request touchant le module dyper-web.
-
-name: dyper-web CI
+# CI — dyper-web (React / TypeScript / Vite). Qualité : lint ESLint + build.
+name: dyper-web — Qualité
 
 on:
   push:
     paths:
       - 'dyper-web/**'
+      - '.github/workflows/dyper-web.yml'
   pull_request:
     paths:
       - 'dyper-web/**'
+      - '.github/workflows/dyper-web.yml'
 
 jobs:
-  build:
-    name: Vérification TypeScript et build
+  quality:
+    name: Lint & Build
     runs-on: ubuntu-latest
-
     defaults:
       run:
-        # Toutes les commandes s'exécutent dans le dossier du module.
         working-directory: dyper-web
 
     steps:
-      - name: Cloner le dépôt
+      - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Configurer Node.js 20 LTS
+      - name: Setup Node.js 20
         uses: actions/setup-node@v4
         with:
           node-version: '20'
           cache: 'npm'
           cache-dependency-path: dyper-web/package-lock.json
 
-      - name: Installer les dépendances
+      - name: Installation des dépendances
         run: npm ci
 
-      - name: Vérifier le typage TypeScript
-        run: npx tsc --noEmit
+      - name: Lint (ESLint)
+        run: npm run lint
 
-      - name: Construire le bundle de production
+      - name: Build de production
         run: npm run build
         env:
-          # URL factice utilisée uniquement pour valider le build.
           VITE_API_URL: http://localhost:3000
+          VITE_APP_KEY: ci-build-key

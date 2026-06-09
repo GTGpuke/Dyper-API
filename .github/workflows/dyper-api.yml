@@ -1,46 +1,56 @@
-# CI — dyper-api (Node.js / Express).
-# Déclenché sur chaque push ou pull request touchant le module dyper-api.
-
-name: dyper-api CI
+# CI — dyper-api (Fastify / TypeScript). Qualité : lint, audit, tests, build.
+name: dyper-api — Qualité
 
 on:
   push:
     paths:
       - 'dyper-api/**'
+      - '.github/workflows/dyper-api.yml'
   pull_request:
     paths:
       - 'dyper-api/**'
+      - '.github/workflows/dyper-api.yml'
 
 jobs:
-  test:
-    name: Tests Node.js
+  quality:
+    name: Lint, Audit, Tests & Build
     runs-on: ubuntu-latest
-
     defaults:
       run:
-        # Toutes les commandes s'exécutent dans le dossier du module.
         working-directory: dyper-api
 
     steps:
-      - name: Cloner le dépôt
+      - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Configurer Node.js 20 LTS
+      - name: Setup Node.js 20
         uses: actions/setup-node@v4
         with:
           node-version: '20'
           cache: 'npm'
           cache-dependency-path: dyper-api/package-lock.json
 
-      - name: Installer les dépendances
+      - name: Installation des dépendances
         run: npm ci
 
-      - name: Exécuter les tests unitaires
-        run: npm run test:unit
+      - name: Vérification du format et du lint (Biome)
+        run: npx biome ci src tests
 
-      - name: Exécuter les tests de régression
-        run: npm run test:regression
+      - name: Audit des vulnérabilités
+        run: npm audit --audit-level=high
+
+      - name: Tests avec couverture
+        run: npm run test:coverage
         env:
-          # Fournit une clé interne factice pour les tests de régression.
-          AI_INTERNAL_KEY: test-key-ci
-          AI_SERVICE_URL: http://localhost:8000
+          NODE_ENV: test
+
+      - name: Vérification du build TypeScript
+        run: npm run build
+
+      - name: Upload du rapport de couverture
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: dyper-api-coverage-${{ github.sha }}
+          path: dyper-api/coverage/
+          retention-days: 7

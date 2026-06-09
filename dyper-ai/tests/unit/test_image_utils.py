@@ -4,9 +4,8 @@ import base64
 from io import BytesIO
 
 import pytest
-from PIL import Image
-
 from app.utils.image import decode_base64, get_dominant_colors, resize_for_model
+from PIL import Image
 
 
 def _make_base64_image(width: int = 100, height: int = 100, color: str = "red") -> str:
@@ -38,6 +37,23 @@ class TestDecodeBase64:
         b64 = _make_base64_image(width=200, height=150)
         result = decode_base64(b64)
         assert result.size == (200, 150)
+
+    def test_decode_base64_invalide_leve_value_error(self):
+        """Vérifie qu'une chaîne non base64 lève une ValueError (mappée en 422 par la route)."""
+        with pytest.raises(ValueError):
+            decode_base64("!!!ceci-n-est-pas-du-base64!!!")
+
+    def test_decode_base64_valide_mais_pas_image_leve_value_error(self):
+        """Vérifie qu'un base64 valide mais non décodable en image lève une ValueError."""
+        not_an_image = base64.b64encode(b"hello world").decode("utf-8")
+        with pytest.raises(ValueError):
+            decode_base64(not_an_image)
+
+    def test_decode_data_url(self):
+        """Vérifie que les data URLs (data:image/...;base64,) sont supportées."""
+        b64 = _make_base64_image()
+        result = decode_base64(f"data:image/jpeg;base64,{b64}")
+        assert isinstance(result, Image.Image)
 
 
 @pytest.mark.unit

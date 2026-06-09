@@ -1,57 +1,55 @@
-# CI — dyper-ai (Python / FastAPI).
-# Déclenché sur chaque push ou pull request touchant le module dyper-ai.
-
-name: dyper-ai CI
+# CI — dyper-ai (Python / FastAPI). Qualité : ruff, mypy, pytest.
+# La stack ML lourde (ultralytics/torch) n'est PAS installée : le runner YOLO est mocké en test,
+# ce qui permet une CI rapide et sans modèle .pt.
+name: dyper-ai — Qualité
 
 on:
   push:
     paths:
       - 'dyper-ai/**'
+      - '.github/workflows/dyper-ai.yml'
   pull_request:
     paths:
       - 'dyper-ai/**'
+      - '.github/workflows/dyper-ai.yml'
 
 jobs:
-  test:
-    name: Tests Python
+  quality:
+    name: Lint, Typage & Tests
     runs-on: ubuntu-latest
-
     defaults:
       run:
-        # Toutes les commandes s'exécutent dans le dossier du module.
         working-directory: dyper-ai
 
     steps:
-      - name: Cloner le dépôt
+      - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Configurer Python 3.11
+      - name: Setup Python 3.11
         uses: actions/setup-python@v5
         with:
           python-version: '3.11'
           cache: 'pip'
-          cache-dependency-path: |
-            dyper-ai/requirements.txt
-            dyper-ai/requirements-dev.txt
+          cache-dependency-path: dyper-ai/requirements-dev.txt
 
-      - name: Installer les dépendances de production
-        run: pip install -r requirements.txt
+      - name: Installation des dépendances (légères, hors ultralytics/torch)
+        run: |
+          pip install -r requirements-dev.txt
+          pip install "fastapi==0.111.0" "pydantic>=2.7" "pydantic-settings>=2.3" "pillow>=10.4" "opencv-python-headless>=4.9"
 
-      - name: Installer les dépendances de développement
-        run: pip install -r requirements-dev.txt
+      - name: Lint (ruff)
+        run: ruff check app tests
 
-      - name: Générer les fixtures de test (image blanche)
+      - name: Vérification du format (ruff)
+        run: ruff format --check app tests
+
+      - name: Typage (mypy)
+        run: mypy app
+
+      - name: Génération des fixtures de test
         run: python tests/fixtures/generate_blank.py
 
-      - name: Exécuter les tests unitaires
-        run: pytest tests/unit -m unit -v
+      - name: Tests (unitaires + régression, runner YOLO mocké)
+        run: pytest -v
         env:
           AI_INTERNAL_KEY: test-key-ci
-          # Le chemin du modèle YOLO n'est pas utilisé en tests unitaires (mocks).
-          YOLO_MODEL_PATH: ../model
-
-      - name: Exécuter les tests de régression
-        run: pytest tests/regression -m regression -v
-        env:
-          AI_INTERNAL_KEY: test-key-ci
-          YOLO_MODEL_PATH: ../model

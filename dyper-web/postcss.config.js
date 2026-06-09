@@ -1,5 +1,5 @@
 // Configuration PostCSS : active Tailwind CSS et Autoprefixer.
-module.exports = {
+export default {
   plugins: {
     tailwindcss: {},
     autoprefixer: {},

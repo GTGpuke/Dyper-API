@@ -2,6 +2,8 @@
 
 > Ce document est la référence centrale du projet Dyper API. Il couvre l'architecture, les choix techniques, les contrats entre services, les structures de fichiers, les types, les conventions de code et les stratégies de déploiement.
 
+> **⚠️ Mise à jour (v2) — la passerelle a été réécrite.** Les sections décrivant `dyper-api` en **Node.js / Express (JavaScript)** correspondent à la conception d'origine. L'implémentation actuelle est en **Fastify / TypeScript** (alignée sur le standard Challenges V2), avec par rapport à ce document : routes regroupées sous le préfixe **`/api`** et protégées par le header **`X-App-Key`** ; persistance de l'historique des analyses en **SQLite** (Sequelize) ; endpoints d'historique `/api/analyses`. La référence opérationnelle à jour est le [README](../README.md) et le README de chaque service. Les contrats de données (réponses `/analyze`, `/process`) et le moteur Python `dyper-ai` restent conformes à ce document.
+
 ---
 
 ## Table des matières

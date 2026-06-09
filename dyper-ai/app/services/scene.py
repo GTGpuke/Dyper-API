@@ -1,130 +1,201 @@
-"""Inférence de scène à partir des objets détectés par YOLO selon 12 niveaux de priorité."""
+"""Inférence de scène à partir des objets détectés par YOLO, selon des règles priorisées.
 
-from typing import List, Optional, Tuple
+Chaque règle porte un label français **et** anglais : la scène retournée est localisée
+selon la langue demandée (corrige le bug où `scene.label` restait en français en mode EN).
+"""
+
+from typing import NamedTuple
+
 from app.schemas.response import DetectedObject, Scene
 
 
-# Définition des règles de scène par ordre de priorité décroissante.
-# Chaque règle est un tuple : (triggers, label_scène, indoor).
-SCENE_RULES: List[Tuple[set, str, Optional[bool]]] = [
+class SceneRule(NamedTuple):
+    """Règle de scène : ensemble de déclencheurs, labels localisés et indicateur intérieur."""
+
+    triggers: frozenset[str]
+    label_fr: str
+    label_en: str
+    indoor: bool | None
+
+
+# Règles ordonnées du plus spécifique au plus général (la première qui matche gagne).
+SCENE_RULES: list[SceneRule] = [
     # Priorité 1 — Transports spécifiques.
-    ({"airplane"}, "aéroport / zone aérienne", False),
-    ({"boat"}, "port / étendue d'eau", False),
-    ({"train"}, "gare / voie ferrée", False),
+    SceneRule(frozenset({"airplane"}), "aéroport / zone aérienne", "airport / air zone", False),
+    SceneRule(frozenset({"boat"}), "port / étendue d'eau", "harbor / body of water", False),
+    SceneRule(frozenset({"train"}), "gare / voie ferrée", "station / railway", False),
     # Priorité 2 — Sports et loisirs outdoor.
-    ({"skis", "snowboard"}, "domaine skiable / montagne enneigée", False),
-    ({"surfboard"}, "plage / surf", False),
-    (
-        {"sports ball", "baseball bat", "baseball glove", "tennis racket"},
+    SceneRule(
+        frozenset({"skis", "snowboard"}),
+        "domaine skiable / montagne enneigée",
+        "ski resort / snowy mountain",
+        False,
+    ),
+    SceneRule(frozenset({"surfboard"}), "plage / surf", "beach / surf", False),
+    SceneRule(
+        frozenset({"sports ball", "baseball bat", "baseball glove", "tennis racket"}),
         "terrain de sport",
+        "sports field",
         False,
     ),
-    ({"skateboard"}, "espace urbain / skatepark", False),
-    ({"kite", "frisbee"}, "espace ouvert / parc", False),
+    SceneRule(
+        frozenset({"skateboard"}), "espace urbain / skatepark", "urban area / skatepark", False
+    ),
+    SceneRule(frozenset({"kite", "frisbee"}), "espace ouvert / parc", "open space / park", False),
     # Priorité 3 — Nature et animaux sauvages.
-    ({"elephant", "zebra", "giraffe", "bear"}, "zoo / safari", False),
-    ({"horse", "cow", "sheep"}, "campagne / ferme", False),
-    ({"bird", "cat", "dog"}, "extérieur / jardin", False),
+    SceneRule(
+        frozenset({"elephant", "zebra", "giraffe", "bear"}), "zoo / safari", "zoo / safari", False
+    ),
+    SceneRule(
+        frozenset({"horse", "cow", "sheep"}), "campagne / ferme", "countryside / farm", False
+    ),
+    SceneRule(frozenset({"bird", "cat", "dog"}), "extérieur / jardin", "outdoors / garden", False),
     # Priorité 4 — Circulation.
-    (
-        {
-            "car",
-            "truck",
-            "bus",
-            "motorcycle",
-            "bicycle",
-            "traffic light",
-            "stop sign",
-            "parking meter",
-            "fire hydrant",
-        },
+    SceneRule(
+        frozenset(
+            {
+                "car",
+                "truck",
+                "bus",
+                "motorcycle",
+                "bicycle",
+                "traffic light",
+                "stop sign",
+                "parking meter",
+                "fire hydrant",
+            }
+        ),
         "rue / circulation urbaine",
+        "street / urban traffic",
         False,
     ),
-    # Priorité 5 — Voyage.
-    ({"suitcase", "backpack", "handbag", "bench"}, "gare / aéroport / zone d'attente", None),
-    ({"suitcase"}, "voyage / déplacement", None),
-    # Priorité 6 — Pièces maison.
-    ({"bed", "teddy bear"}, "chambre à coucher", True),
-    ({"toilet", "toothbrush", "hair drier", "sink"}, "salle de bain", True),
-    ({"microwave", "oven", "toaster", "refrigerator", "sink"}, "cuisine", True),
-    ({"couch", "remote", "tv"}, "salon / salle de séjour", True),
+    # Priorité 5 — Voyage et transit.
+    SceneRule(
+        frozenset({"suitcase", "backpack", "handbag", "bench"}),
+        "gare / aéroport / zone d'attente",
+        "station / airport / waiting area",
+        None,
+    ),
+    SceneRule(frozenset({"suitcase"}), "voyage / déplacement", "travel / commute", None),
+    # Priorité 6 — Pièces de la maison.
+    SceneRule(frozenset({"bed", "teddy bear"}), "chambre à coucher", "bedroom", True),
+    # « sink » est ambigu (cuisine ET salle de bain) : on le réserve à la cuisine et on
+    # s'appuie sur toilet/toothbrush/hair drier pour la salle de bain (évite les faux positifs).
+    SceneRule(
+        frozenset({"toilet", "toothbrush", "hair drier"}),
+        "salle de bain",
+        "bathroom",
+        True,
+    ),
+    SceneRule(
+        frozenset({"microwave", "oven", "toaster", "refrigerator", "sink"}),
+        "cuisine",
+        "kitchen",
+        True,
+    ),
+    SceneRule(frozenset({"couch", "remote", "tv"}), "salon / salle de séjour", "living room", True),
     # Priorité 7 — Repas.
-    (
-        {
-            "dining table",
-            "fork",
-            "knife",
-            "spoon",
-            "bowl",
-            "wine glass",
-            "bottle",
-            "cup",
-            "pizza",
-            "cake",
-            "sandwich",
-            "hot dog",
-            "donut",
-            "banana",
-            "apple",
-            "orange",
-            "broccoli",
-            "carrot",
-        },
+    SceneRule(
+        frozenset(
+            {
+                "dining table",
+                "fork",
+                "knife",
+                "spoon",
+                "bowl",
+                "wine glass",
+                "bottle",
+                "cup",
+                "pizza",
+                "cake",
+                "sandwich",
+                "hot dog",
+                "donut",
+                "banana",
+                "apple",
+                "orange",
+                "broccoli",
+                "carrot",
+            }
+        ),
         "repas / table à manger",
+        "meal / dining table",
         True,
     ),
     # Priorité 8 — Bureau.
-    ({"laptop", "keyboard", "mouse", "book", "tie"}, "bureau / espace de travail", True),
+    SceneRule(
+        frozenset({"laptop", "keyboard", "mouse", "book", "tie"}),
+        "bureau / espace de travail",
+        "office / workspace",
+        True,
+    ),
     # Priorité 9 — Célébration.
-    ({"wine glass", "bottle", "cake"}, "célébration / fête", True),
+    SceneRule(
+        frozenset({"wine glass", "bottle", "cake"}),
+        "célébration / fête",
+        "celebration / party",
+        True,
+    ),
     # Priorité 11 — Intérieur générique.
-    (
-        {
-            "chair",
-            "potted plant",
-            "clock",
-            "vase",
-            "book",
-            "cell phone",
-            "scissors",
-            "toothbrush",
-            "umbrella",
-        },
+    SceneRule(
+        frozenset(
+            {
+                "chair",
+                "potted plant",
+                "clock",
+                "vase",
+                "book",
+                "cell phone",
+                "scissors",
+                "toothbrush",
+                "umbrella",
+            }
+        ),
         "intérieur / pièce de vie",
+        "interior / living space",
         True,
     ),
 ]
 
+# Libellés localisés des scènes calculées hors table de règles.
+_CROWD = ("foule / espace public", "crowd / public space")
+_GROUP = ("scène de groupe", "group scene")
+_DEFAULT = ("scène générale", "general scene")
 
-def infer_scene(objects: List[DetectedObject]) -> Scene:
+
+def _localized(labels: tuple[str, str], lang: str) -> str:
+    """Retourne le label français ou anglais selon la langue (`fr` par défaut)."""
+    return labels[1] if lang == "en" else labels[0]
+
+
+def infer_scene(objects: list[DetectedObject], lang: str = "fr") -> Scene:
     """Infère la scène la plus probable à partir des objets détectés.
 
-    Applique les règles dans l'ordre de priorité. Retourne la scène par défaut
-    si aucune règle ne correspond. La confiance est calculée comme la moyenne
-    des confidences des objets ayant déclenché la règle.
+    Applique d'abord la logique de foule (basée sur le nombre de personnes), puis les règles
+    par ordre de priorité. La confiance est la moyenne des confidences des objets ayant
+    déclenché la règle. Retourne la scène par défaut si rien ne correspond.
     """
     labels = [obj.label for obj in objects]
     label_set = set(labels)
 
-    # Priorité 10 — Foule (logique basée sur le nombre de personnes).
-    person_count = labels.count("person")
+    # Priorité 10 — Foule / groupe (logique numérique sur les personnes).
+    person_confs = [obj.confidence for obj in objects if obj.label == "person"]
+    person_count = len(person_confs)
     if person_count >= 5:
-        person_confs = [obj.confidence for obj in objects if obj.label == "person"]
-        confidence = sum(person_confs) / len(person_confs)
-        return Scene(label="foule / espace public", confidence=round(confidence, 4), indoor=None)
+        confidence = sum(person_confs) / person_count
+        return Scene(label=_localized(_CROWD, lang), confidence=round(confidence, 4), indoor=None)
     if 2 <= person_count <= 4:
-        person_confs = [obj.confidence for obj in objects if obj.label == "person"]
-        confidence = sum(person_confs) / len(person_confs)
-        return Scene(label="scène de groupe", confidence=round(confidence, 4), indoor=None)
+        confidence = sum(person_confs) / person_count
+        return Scene(label=_localized(_GROUP, lang), confidence=round(confidence, 4), indoor=None)
 
     # Application des règles de priorité 1 à 9 puis 11.
-    for triggers, scene_label, indoor in SCENE_RULES:
-        matched = triggers & label_set
+    for rule in SCENE_RULES:
+        matched = rule.triggers & label_set
         if matched:
             confs = [obj.confidence for obj in objects if obj.label in matched]
             confidence = sum(confs) / len(confs) if confs else 0.5
-            return Scene(label=scene_label, confidence=round(confidence, 4), indoor=indoor)
+            label = rule.label_en if lang == "en" else rule.label_fr
+            return Scene(label=label, confidence=round(confidence, 4), indoor=rule.indoor)
 
     # Priorité 12 — Scène par défaut.
-    return Scene(label="scène générale", confidence=0.5, indoor=None)
+    return Scene(label=_localized(_DEFAULT, lang), confidence=0.5, indoor=None)

@@ -1,0 +1,71 @@
+# Déploiement du monorepo Dyper (dyper-ai + dyper-api + dyper-web).
+# Stubs prêts à activer une fois l'infrastructure disponible (calqué sur Challenges V2).
+name: Déploiement
+
+on:
+  push:
+    branches: [dev, main]
+
+jobs:
+  # ---------------------------------------------------------------------------
+  # Étape 1 — Qualité agrégée (les workflows par service tournent aussi en parallèle).
+  # ---------------------------------------------------------------------------
+  quality:
+    name: Récapitulatif qualité
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Note
+        run: echo "Les contrôles qualité par service (dyper-api / dyper-ai / dyper-web) doivent passer avant déploiement."
+
+  # ---------------------------------------------------------------------------
+  # Étape 2a — Déploiement sur le serveur de test (branche dev).
+  # ---------------------------------------------------------------------------
+  deploy-dev:
+    name: Deploy (Dev)
+    runs-on: ubuntu-latest
+    needs: quality
+    if: github.ref == 'refs/heads/dev'
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      # =============================================================================
+      # TODO — DÉPLOIEMENT : Serveur de test (docker compose).
+      # Secrets GitHub à configurer :
+      #   DEV_SERVER_HOST / DEV_SERVER_USER / DEV_SERVER_SSH_KEY
+      # =============================================================================
+      # - name: Déploiement via SSH (docker compose)
+      #   uses: appleboy/ssh-action@v1
+      #   with:
+      #     host: ${{ secrets.DEV_SERVER_HOST }}
+      #     username: ${{ secrets.DEV_SERVER_USER }}
+      #     key: ${{ secrets.DEV_SERVER_SSH_KEY }}
+      #     script: |
+      #       cd /opt/dyper
+      #       git pull origin dev
+      #       docker compose up -d --build
+
+  # ---------------------------------------------------------------------------
+  # Étape 2b — Déploiement en production (branche main).
+  # ---------------------------------------------------------------------------
+  deploy-prod:
+    name: Deploy (Production)
+    runs-on: ubuntu-latest
+    needs: quality
+    if: github.ref == 'refs/heads/main'
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      # =============================================================================
+      # TODO — DÉPLOIEMENT : Production (build + push des images Docker des 3 services
+      # puis mise à jour de l'orchestrateur). Secrets à configurer selon la cible
+      # (AWS ECR/ECS, registre privé, etc.).
+      # =============================================================================
+      # - name: Build des images
+      #   run: |
+      #     docker build -t dyper-ai:${{ github.sha }} ./dyper-ai
+      #     docker build -t dyper-api:${{ github.sha }} ./dyper-api
+      #     docker build -t dyper-web:${{ github.sha }} ./dyper-web

@@ -1,10 +1,10 @@
 """Tests unitaires pour la vérification de la clé d'authentification interne."""
 
-import pytest
-from fastapi import HTTPException
 from unittest.mock import patch
 
+import pytest
 from app.utils.auth import verify_internal_key
+from fastapi import HTTPException
 
 
 @pytest.mark.unit

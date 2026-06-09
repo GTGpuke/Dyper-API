@@ -1,7 +1,6 @@
 """Tests unitaires pour l'inférence de scène à partir des objets détectés."""
 
 import pytest
-
 from app.schemas.response import DetectedObject
 from app.services.scene import infer_scene
 
@@ -81,3 +80,35 @@ class TestInferScene:
         ]
         scene = infer_scene(objects)
         assert scene.confidence == pytest.approx(0.85, abs=0.01)
+
+
+@pytest.mark.unit
+class TestInferSceneEnglish:
+    """Tests de la localisation anglaise des labels de scène."""
+
+    def test_label_anglais_bureau(self):
+        """Vérifie que le label de scène est en anglais lorsque lang='en'."""
+        scene = infer_scene(_make_objects("laptop", "keyboard"), lang="en")
+        assert scene.label == "office / workspace"
+
+    def test_label_anglais_cuisine(self):
+        """Vérifie le label anglais de la cuisine."""
+        scene = infer_scene(_make_objects("microwave", "oven"), lang="en")
+        assert scene.label == "kitchen"
+
+    def test_label_anglais_foule(self):
+        """Vérifie le label anglais de la foule (calculé hors table de règles)."""
+        scene = infer_scene(
+            _make_objects("person", "person", "person", "person", "person"), lang="en"
+        )
+        assert scene.label == "crowd / public space"
+
+    def test_label_anglais_defaut(self):
+        """Vérifie le label anglais de la scène par défaut."""
+        scene = infer_scene([], lang="en")
+        assert scene.label == "general scene"
+
+    def test_defaut_reste_francais(self):
+        """Vérifie que sans argument lang, le label reste en français (rétrocompatibilité)."""
+        scene = infer_scene(_make_objects("laptop", "keyboard"))
+        assert scene.label == "bureau / espace de travail"

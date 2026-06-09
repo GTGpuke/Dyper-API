@@ -1,0 +1,69 @@
+import { DataTypes, Model, type Optional } from 'sequelize';
+import sequelize from '../services/db/database.service';
+import type { AnalyzeType } from '../types';
+
+// Historique d'une analyse traitée par la passerelle (une ligne par requête /api/analyze*).
+interface AnalysisAttributes {
+  id: string;
+  request_id: string;
+  type: AnalyzeType;
+  lang: string;
+  model: string;
+  processing_time_ms: number;
+  description: string;
+  scene_label: string;
+  scene_confidence: number;
+  indoor: boolean | null;
+  objects_count: number;
+  tags: string[];
+  colors: string[];
+  created_at: Date;
+}
+
+type AnalysisCreationAttributes = Optional<AnalysisAttributes, 'id' | 'indoor' | 'created_at'>;
+
+class Analysis
+  extends Model<AnalysisAttributes, AnalysisCreationAttributes>
+  implements AnalysisAttributes
+{
+  declare id: string;
+  declare request_id: string;
+  declare type: AnalyzeType;
+  declare lang: string;
+  declare model: string;
+  declare processing_time_ms: number;
+  declare description: string;
+  declare scene_label: string;
+  declare scene_confidence: number;
+  declare indoor: boolean | null;
+  declare objects_count: number;
+  declare tags: string[];
+  declare colors: string[];
+  declare created_at: Date;
+}
+
+Analysis.init(
+  {
+    id: { type: DataTypes.UUID, primaryKey: true, defaultValue: DataTypes.UUIDV4 },
+    request_id: { type: DataTypes.STRING, allowNull: false, unique: true },
+    type: { type: DataTypes.STRING, allowNull: false },
+    lang: { type: DataTypes.STRING, allowNull: false, defaultValue: 'fr' },
+    model: { type: DataTypes.STRING, allowNull: false },
+    processing_time_ms: { type: DataTypes.INTEGER, allowNull: false, defaultValue: 0 },
+    description: { type: DataTypes.TEXT, allowNull: false },
+    scene_label: { type: DataTypes.STRING, allowNull: false },
+    scene_confidence: { type: DataTypes.FLOAT, allowNull: false, defaultValue: 0 },
+    indoor: { type: DataTypes.BOOLEAN, allowNull: true, defaultValue: null },
+    objects_count: { type: DataTypes.INTEGER, allowNull: false, defaultValue: 0 },
+    tags: { type: DataTypes.JSON, allowNull: false, defaultValue: [] },
+    colors: { type: DataTypes.JSON, allowNull: false, defaultValue: [] },
+    created_at: { type: DataTypes.DATE, allowNull: false, defaultValue: DataTypes.NOW },
+  },
+  {
+    sequelize,
+    tableName: 'analysis',
+    timestamps: false,
+  }
+);
+
+export default Analysis;

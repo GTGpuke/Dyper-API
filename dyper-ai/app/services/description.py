@@ -1,13 +1,16 @@
-"""Génération de descriptions textuelles en français et en anglais à partir des détections YOLO."""
+"""Génération de descriptions textuelles en français et en anglais à partir des détections YOLO.
+
+Deux responsabilités : la traduction des labels COCO (anglais → français) et l'assemblage de
+phrases naturelles. Le label de scène (`scene.label`) est déjà localisé en amont par
+`scene.infer_scene(objects, lang)`, ce qui garantit une description entièrement cohérente.
+"""
 
 from collections import Counter
-from typing import List, Optional
 
 from app.schemas.response import DetectedObject, Scene
 
-
-# Table de traduction COCO vers le français (singulier, pluriel formaté).
-COCO_FR: dict = {
+# Table de traduction COCO vers le français : "label": (singulier, pluriel formaté avec {n}).
+COCO_FR: dict[str, tuple[str, str]] = {
     "person": ("une personne", "{n} personnes"),
     "bicycle": ("un vélo", "{n} vélos"),
     "car": ("une voiture", "{n} voitures"),
@@ -98,32 +101,31 @@ def _translate_label(label: str, count: int, lang: str) -> str:
             singular, plural = COCO_FR[label]
             return singular if count == 1 else plural.format(n=count)
         return f"{count} {label}" if count > 1 else f"un {label}"
-    else:
-        # Anglais : utilise le label COCO brut avec article indéfini ou quantité.
-        return f"{count} {label}{'s' if count > 1 else ''}" if count > 1 else f"a {label}"
+
+    # Anglais : label COCO brut, pluriel naïf et article « a/an » selon la voyelle initiale.
+    if count > 1:
+        return f"{count} {label}s"
+    article = "an" if label[:1].lower() in "aeiou" else "a"
+    return f"{article} {label}"
 
 
-def _build_list_prose(items: List[str]) -> str:
-    """Assemble une liste en prose avec des virgules et 'et' avant le dernier élément."""
+def _build_list_prose(items: list[str], lang: str) -> str:
+    """Assemble une liste en prose avec virgules et la conjonction finale (« et » / « and »)."""
     if not items:
         return ""
     if len(items) == 1:
         return items[0]
-    return ", ".join(items[:-1]) + " et " + items[-1]
+    conjunction = "and" if lang == "en" else "et"
+    return ", ".join(items[:-1]) + f" {conjunction} " + items[-1]
 
 
 def generate(
-    objects: List[DetectedObject],
+    objects: list[DetectedObject],
     scene: Scene,
-    prompt: Optional[str],
+    prompt: str | None,
     lang: str,
 ) -> str:
-    """Génère une description textuelle cohérente à partir des objets, de la scène et du prompt.
-
-    Retourne une phrase décrivant le contenu visuel adapté à la langue demandée.
-    """
-    counts = Counter(obj.label for obj in objects)
-
+    """Génère une description textuelle cohérente à partir des objets, de la scène et du prompt."""
     if not objects:
         if prompt:
             if lang == "fr":
@@ -134,31 +136,28 @@ def generate(
                 )
             return (
                 f"No recognized object was detected. "
-                f"Regarding your question \"{prompt}\": "
+                f'Regarding your question "{prompt}": '
                 f"the visual analysis could not identify relevant elements."
             )
         if lang == "fr":
             return "Aucun objet reconnu n'a été détecté dans cette image."
         return "No recognized object was detected in this image."
 
-    translated_items = [
-        _translate_label(label, count, lang) for label, count in counts.items()
-    ]
-    prose_list = _build_list_prose(translated_items)
+    counts = Counter(obj.label for obj in objects)
+    translated_items = [_translate_label(label, count, lang) for label, count in counts.items()]
+    prose_list = _build_list_prose(translated_items, lang)
 
     if lang == "fr":
-        base = f"L'image montre {prose_list} dans un contexte de {scene.label}."
         if prompt:
             return (
                 f"En réponse à « {prompt} » : l'image montre {prose_list} "
                 f"dans un contexte de {scene.label}."
             )
-        return base
-    else:
-        base = f"The image shows {prose_list} in a context of {scene.label}."
-        if prompt:
-            return (
-                f"In response to \"{prompt}\": the image shows {prose_list} "
-                f"in a context of {scene.label}."
-            )
-        return base
+        return f"L'image montre {prose_list} dans un contexte de {scene.label}."
+
+    if prompt:
+        return (
+            f'In response to "{prompt}": the image shows {prose_list} '
+            f"in a context of {scene.label}."
+        )
+    return f"The image shows {prose_list} in a context of {scene.label}."

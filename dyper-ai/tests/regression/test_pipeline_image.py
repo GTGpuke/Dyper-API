@@ -1,9 +1,8 @@
 """Tests de régression du pipeline de détection d'image avec runner YOLO mocké."""
 
-import pytest
-from PIL import Image
 from unittest.mock import MagicMock
 
+import pytest
 from app.schemas.response import ProcessResponse
 from app.services.detector import detect
 

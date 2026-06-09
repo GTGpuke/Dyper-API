@@ -1,15 +1,15 @@
-// Configuration Vite : plugin React et proxy vers le serveur API en développement.
-import { defineConfig } from 'vite'
+// Configuration Vite : plugin React et proxy vers la passerelle dyper-api en développement.
 import react from '@vitejs/plugin-react'
+import { defineConfig } from 'vite'
 
 export default defineConfig({
   plugins: [react()],
   server: {
     port: 5173,
+    strictPort: true,
     proxy: {
-      '/analyze': { target: 'http://localhost:3000', changeOrigin: true },
-      '/health':  { target: 'http://localhost:3000', changeOrigin: true },
-      '/chat':    { target: 'http://localhost:3000', changeOrigin: true },
+      '/api': { target: 'http://localhost:3000', changeOrigin: true },
+      '/health': { target: 'http://localhost:3000', changeOrigin: true },
     },
   },
 })

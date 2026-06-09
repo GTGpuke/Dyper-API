@@ -1,7 +1,6 @@
 """Tests unitaires pour la génération de descriptions textuelles."""
 
 import pytest
-
 from app.schemas.response import DetectedObject, Scene
 from app.services.description import generate
 
@@ -74,3 +73,27 @@ class TestGenerate:
         objects = [_obj("unknown_object")]
         result = generate(objects, _scene(), None, "fr")
         assert "unknown_object" in result
+
+    def test_structure_phrase_en(self):
+        """Vérifie la structure de phrase anglaise et l'usage du label de scène anglais."""
+        objects = [_obj("car")]
+        result = generate(objects, _scene("street / urban traffic"), None, "en")
+        assert result == "The image shows a car in a context of street / urban traffic."
+
+    def test_article_an_devant_voyelle_en(self):
+        """Vérifie l'usage de « an » devant un label commençant par une voyelle."""
+        objects = [_obj("apple")]
+        result = generate(objects, _scene("kitchen"), None, "en")
+        assert "an apple" in result
+
+    def test_pluriel_en(self):
+        """Vérifie le pluriel naïf anglais pour plusieurs objets."""
+        objects = [_obj("car"), _obj("car")]
+        result = generate(objects, _scene("street"), None, "en")
+        assert "2 cars" in result
+
+    def test_prompt_inclus_en(self):
+        """Vérifie que le prompt est inclus dans la description anglaise."""
+        objects = [_obj("person")]
+        result = generate(objects, _scene("group scene"), "Who is there?", "en")
+        assert "Who is there?" in result
