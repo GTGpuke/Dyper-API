@@ -5,6 +5,7 @@ import sequelize from '../services/db/database.service';
 interface ChatExchangeAttributes {
   id: string;
   analysis_request_id: string | null;
+  user_id: string | null;
   question: string;
   answer: string;
   lang: string;
@@ -14,7 +15,7 @@ interface ChatExchangeAttributes {
 
 type ChatExchangeCreationAttributes = Optional<
   ChatExchangeAttributes,
-  'id' | 'analysis_request_id' | 'created_at'
+  'id' | 'analysis_request_id' | 'user_id' | 'created_at'
 >;
 
 class ChatExchange
@@ -23,6 +24,7 @@ class ChatExchange
 {
   declare id: string;
   declare analysis_request_id: string | null;
+  declare user_id: string | null;
   declare question: string;
   declare answer: string;
   declare lang: string;
@@ -34,6 +36,7 @@ ChatExchange.init(
   {
     id: { type: DataTypes.UUID, primaryKey: true, defaultValue: DataTypes.UUIDV4 },
     analysis_request_id: { type: DataTypes.STRING, allowNull: true, defaultValue: null },
+    user_id: { type: DataTypes.UUID, allowNull: true, defaultValue: null },
     question: { type: DataTypes.TEXT, allowNull: false },
     answer: { type: DataTypes.TEXT, allowNull: false },
     lang: { type: DataTypes.STRING, allowNull: false, defaultValue: 'fr' },

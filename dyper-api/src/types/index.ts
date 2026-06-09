@@ -66,3 +66,35 @@ export interface ChatContext {
   processingTime?: number;
   requestId?: string;
 }
+
+// ─── Préférences utilisateur (colonne JSON `settings` du modèle User) ──────────
+
+/** Apparence de l'interface. */
+export interface AppearanceSettings {
+  theme: 'light' | 'dark' | 'system';
+  density: 'comfortable' | 'compact';
+}
+
+/** Préférences appliquées aux nouvelles analyses. */
+export interface AnalysisSettings {
+  defaultLang: string;
+  defaultType: 'file' | 'url' | 'prompt';
+}
+
+/** Forme complète des préférences utilisateur. */
+export interface UserSettings {
+  appearance: AppearanceSettings;
+  analysis: AnalysisSettings;
+}
+
+/** Valeurs par défaut appliquées à la création et à la lecture (forward-compatible). */
+export const DEFAULT_USER_SETTINGS: UserSettings = {
+  appearance: { theme: 'system', density: 'comfortable' },
+  analysis: { defaultLang: 'fr', defaultType: 'file' },
+};
+
+/** Identité de l'utilisateur authentifié, attachée à la requête par verifyAuth. */
+export interface AuthUser {
+  id: string;
+  email: string;
+}

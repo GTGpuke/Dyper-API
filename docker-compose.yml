@@ -26,6 +26,7 @@ services:
       DB_STORAGE: /app/data/dyper.sqlite
       CORS_ORIGIN: ${CORS_ORIGIN:-http://localhost:5173}
       APP_KEY: ${APP_KEY:?APP_KEY requis}
+      JWT_SECRET: ${JWT_SECRET:?JWT_SECRET requis}
       AI_SERVICE_URL: http://dyper-ai:8000
       AI_INTERNAL_KEY: ${AI_INTERNAL_KEY:-supersecretkey123}
       GROQ_API_KEY: ${GROQ_API_KEY:-}

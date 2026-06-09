@@ -1,27 +1,36 @@
-// Composant d'affichage de la palette des couleurs dominantes détectées dans l'image.
+// Palette des couleurs dominantes, avec code hexadécimal copiable.
+import { useState } from 'react'
 
-interface ColorPaletteProps {
-  colors: string[]
-}
+export function ColorPalette({ colors }: { colors: string[] }) {
+  const [copied, setCopied] = useState<string | null>(null)
 
-export function ColorPalette({ colors }: ColorPaletteProps) {
+  function copy(hex: string): void {
+    navigator.clipboard?.writeText(hex).then(
+      () => {
+        setCopied(hex)
+        setTimeout(() => setCopied(null), 1200)
+      },
+      () => undefined
+    )
+  }
+
   return (
-    <div className="flex flex-col gap-2">
-      <h3 className="text-xs font-semibold uppercase tracking-wider text-gray-400">
-        Couleurs dominantes
-      </h3>
-      <div className="flex flex-wrap gap-3">
-        {colors.map((color) => (
-          <div key={color} className="flex flex-col items-center gap-1">
-            <div
-              className="h-8 w-8 rounded border border-gray-700 shadow"
-              style={{ backgroundColor: color }}
-              aria-label={`Couleur ${color}`}
-            />
-            <span className="text-xs text-gray-400 font-mono">{color}</span>
-          </div>
-        ))}
-      </div>
+    <div className="flex flex-wrap gap-2">
+      {colors.map((color) => (
+        <button
+          key={color}
+          type="button"
+          onClick={() => copy(color)}
+          className="group flex items-center gap-2 rounded-lg border border-ink-200 bg-white py-1 pl-1 pr-2.5 transition-colors hover:border-ink-300 dark:border-ink-700 dark:bg-ink-800 dark:hover:border-ink-600"
+          title="Copier"
+        >
+          <span
+            className="h-6 w-6 rounded-md ring-1 ring-inset ring-black/5"
+            style={{ backgroundColor: color }}
+          />
+          <span className="font-mono text-xs text-ink-500 dark:text-ink-400">{copied === color ? 'copié !' : color}</span>
+        </button>
+      ))}
     </div>
   )
 }

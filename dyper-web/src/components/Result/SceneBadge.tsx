@@ -1,24 +1,30 @@
-// Composant d'affichage du badge de scène avec icône intérieur/extérieur et score de confiance.
+// Badge de scène inférée : libellé, intérieur/extérieur et confiance.
+import { Badge } from '../ui/Badge'
+import { useI18n } from '../../contexts/I18nContext'
 import { formatConfidence } from '../../utils/formatters'
-import type { Scene } from '../../types'
 
-interface SceneBadgeProps {
-  scene: Scene
-}
-
-// Retourne l'icône correspondant au type de scène.
-function getSceneIcon(indoor?: boolean): string {
-  if (indoor === true) return '🏠'
-  if (indoor === false) return '🌳'
-  return '?'
-}
-
-export function SceneBadge({ scene }: SceneBadgeProps) {
+export function SceneBadge({
+  label,
+  confidence,
+  indoor,
+}: {
+  label: string
+  confidence: number
+  indoor?: boolean | null
+}) {
+  const { t } = useI18n()
   return (
-    <div className="inline-flex items-center gap-2 bg-gray-800 border border-gray-700 rounded-full px-3 py-1.5">
-      <span className="text-base" aria-hidden="true">{getSceneIcon(scene.indoor)}</span>
-      <span className="text-sm font-medium text-gray-200 capitalize">{scene.label}</span>
-      <span className="text-xs text-gray-400">{formatConfidence(scene.confidence)}</span>
+    <div className="flex flex-wrap items-center gap-2">
+      <Badge tone="brand" className="text-sm">
+        <svg className="h-3.5 w-3.5" viewBox="0 0 20 20" fill="currentColor" aria-hidden>
+          <path d="M10 2l8 7h-2v7h-4v-5H8v5H4V9H2l8-7z" />
+        </svg>
+        {label}
+      </Badge>
+      {indoor !== null && indoor !== undefined && (
+        <Badge tone="neutral">{indoor ? t('result.indoor') : t('result.outdoor')}</Badge>
+      )}
+      <span className="font-mono text-xs text-ink-400 dark:text-ink-500">{formatConfidence(confidence)}</span>
     </div>
   )
 }

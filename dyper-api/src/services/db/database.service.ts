@@ -23,14 +23,31 @@ const sequelize = new Sequelize({
   },
 });
 
+// Supprime les tables résiduelles « *_backup » qu'un sync({ alter }) interrompu peut laisser
+// (ex. redémarrage du watcher en plein milieu). Sans ce nettoyage, le sync suivant échoue avec
+// SQLITE_ERROR. Rend le démarrage en développement auto-réparant.
+async function dropOrphanBackupTables(): Promise<void> {
+  if (env.DB_STORAGE === ':memory:') return;
+  const [rows] = await sequelize.query(
+    "SELECT name FROM sqlite_master WHERE type='table' AND name LIKE '%_backup'"
+  );
+  for (const row of rows as Array<{ name: string }>) {
+    await sequelize.query(`DROP TABLE IF EXISTS \`${row.name}\``);
+    logger.warn(`Table résiduelle supprimée avant synchronisation : ${row.name}`);
+  }
+}
+
 // Vérifie que la connexion à la base de données est opérationnelle.
-// En dehors de la production, synchronise les modèles avec la base (alter: true).
+// En dehors de la production, crée les tables manquantes (sync sans alter : idempotent et sans
+// réécriture — évite le coûteux cycle de reconstruction SQLite qui, sous un watcher de dev,
+// déclenche des redémarrages en boucle. En cas de changement de schéma, réinitialiser la base de dev).
 export async function connectDatabase(): Promise<void> {
   await sequelize.authenticate();
   logger.info('Connexion à la base de données SQLite établie.');
 
   if (!env.isProd) {
-    await sequelize.sync({ alter: true });
+    await dropOrphanBackupTables();
+    await sequelize.sync();
     logger.info('Modèles synchronisés avec la base de données.');
   }
 }

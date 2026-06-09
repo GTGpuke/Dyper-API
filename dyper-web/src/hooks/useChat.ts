@@ -1,44 +1,41 @@
-// Hook de gestion de l'historique des messages du chat.
+// Hook de chat de suivi « live » sur un résultat d'analyse en cours de session.
+// Les échanges sont aussi persistés côté passerelle (table chat_exchange) via /api/chat.
 import { useState } from 'react'
 import { nanoid } from 'nanoid'
-import type { ChatMessage, UserTextContent, UserImageContent, AnalysisResult, ApiError } from '../types'
+import * as api from '../services/api'
+import type { AnalysisResult, ApiError, LiveChatMessage } from '../types'
 
 interface UseChatReturn {
-  messages: ChatMessage[]
-  addUserMessage: (content: UserTextContent | UserImageContent) => string
-  addBotMessage: (result: AnalysisResult) => void
-  addErrorMessage: (error: ApiError) => void
-  clearChat: () => void
+  messages: LiveChatMessage[]
+  sending: boolean
+  ask: (question: string, context: AnalysisResult) => Promise<void>
+  reset: () => void
 }
 
 export function useChat(): UseChatReturn {
-  const [messages, setMessages] = useState<ChatMessage[]>([])
+  const [messages, setMessages] = useState<LiveChatMessage[]>([])
+  const [sending, setSending] = useState(false)
 
-  function addUserMessage(content: UserTextContent | UserImageContent): string {
-    const id = nanoid()
-    setMessages(prev => [...prev, { id, role: 'user', timestamp: new Date(), content }])
-    return id
+  function push(role: LiveChatMessage['role'], content: string): void {
+    setMessages((prev) => [...prev, { id: nanoid(), role, content, timestamp: new Date() }])
   }
 
-  function addBotMessage(result: AnalysisResult): void {
-    const id = nanoid()
-    setMessages(prev => [...prev, {
-      id, role: 'bot', timestamp: new Date(),
-      content: { type: 'result', result }
-    }])
+  async function ask(question: string, context: AnalysisResult): Promise<void> {
+    push('user', question)
+    setSending(true)
+    try {
+      const answer = await api.chatWithResult(question, context, context.lang)
+      push('bot', answer)
+    } catch (err) {
+      push('error', (err as ApiError).message)
+    } finally {
+      setSending(false)
+    }
   }
 
-  function addErrorMessage(error: ApiError): void {
-    const id = nanoid()
-    setMessages(prev => [...prev, {
-      id, role: 'error', timestamp: new Date(),
-      content: { type: 'error', message: error.message, code: error.code }
-    }])
-  }
-
-  function clearChat(): void {
+  function reset(): void {
     setMessages([])
   }
 
-  return { messages, addUserMessage, addBotMessage, addErrorMessage, clearChat }
+  return { messages, sending, ask, reset }
 }

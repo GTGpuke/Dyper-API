@@ -1,54 +1,24 @@
 // Définition de tous les types partagés de l'application Dyper Web.
 
-// ─── Messages du chat ───────────────────────────────────────────────────────
+// ─── Visualisation & résultat d'analyse (réponse live de /api/analyze*) ──────
 
-export type MessageRole = 'user' | 'bot' | 'error'
-
-export interface ChatMessage {
-  id: string
-  role: MessageRole
-  timestamp: Date
-  content: MessageContent
+export interface BoundingBox {
+  x: number
+  y: number
+  w: number
+  h: number
 }
 
-export type MessageContent =
-  | UserTextContent
-  | UserImageContent
-  | BotResultContent
-  | ErrorContent
-
-export interface UserTextContent {
-  type: 'text'
-  text: string
+export interface DetectedObject {
+  label: string
+  confidence: number
+  boundingBox?: BoundingBox
 }
 
-export interface UserImageContent {
-  type: 'image'
-  text?: string
-  file: File
-  previewUrl: string
-}
-
-export interface BotResultContent {
-  type: 'result'
-  result: AnalysisResult
-}
-
-export interface ErrorContent {
-  type: 'error'
-  message: string
-  code: string
-}
-
-// ─── Résultat d'analyse ──────────────────────────────────────────────────────
-
-export interface AnalysisResult {
-  description: string
-  visualization: Visualization
-  model: string
-  lang: string
-  processingTime: number
-  requestId: string
+export interface Scene {
+  label: string
+  confidence: number
+  indoor?: boolean | null
 }
 
 export interface Visualization {
@@ -59,35 +29,56 @@ export interface Visualization {
   tags: string[]
 }
 
-export interface DetectedObject {
-  label: string
-  confidence: number
-  boundingBox?: BoundingBox
+export interface AnalysisResult {
+  description: string
+  visualization: Visualization
+  model: string
+  lang: string
+  processingTime: number
+  requestId: string
 }
 
-export interface BoundingBox {
-  x: number
-  y: number
-  w: number
-  h: number
+export type AnalyzeType = 'image' | 'video' | 'prompt'
+
+// ─── Enregistrements persistés en base (lecture de l'historique) ─────────────
+
+/** Une ligne de la table `analysis` (résumé persisté d'une analyse). */
+export interface AnalysisRecord {
+  id: string
+  request_id: string
+  type: AnalyzeType
+  lang: string
+  model: string
+  processing_time_ms: number
+  description: string
+  scene_label: string
+  scene_confidence: number
+  indoor: boolean | null
+  objects_count: number
+  tags: string[]
+  colors: string[]
+  created_at: string
 }
 
-export interface Scene {
-  label: string
-  confidence: number
-  indoor?: boolean
+/** Une ligne de la table `chat_exchange` (échange LLM persisté). */
+export interface ChatExchangeRecord {
+  id: string
+  analysis_request_id: string | null
+  question: string
+  answer: string
+  lang: string
+  model: string
+  created_at: string
 }
 
-// ─── État de l'application ───────────────────────────────────────────────────
+// ─── Réponses paginées / enveloppes API ──────────────────────────────────────
 
-export type AnalyzeStatus = 'idle' | 'loading' | 'success' | 'error'
-
-export interface AnalyzeState {
-  status: AnalyzeStatus
-  error: string | null
+export interface Paginated<T> {
+  data: T[]
+  total: number
+  page: number
+  limit: number
 }
-
-// ─── API ─────────────────────────────────────────────────────────────────────
 
 export interface ApiResponse<T> {
   success: boolean
@@ -101,4 +92,70 @@ export interface ApiError {
   code: string
   message: string
   details?: Record<string, unknown>
+}
+
+export interface HealthStatus {
+  status: 'ok' | 'error'
+  uptime: number
+  db: 'ok' | 'error'
+  ai: 'ok' | 'unreachable'
+}
+
+// ─── Paramètres de requête de l'historique ───────────────────────────────────
+
+export type SortBy = 'created_at' | 'processing_time_ms' | 'type'
+export type SortOrder = 'asc' | 'desc'
+
+export interface AnalysesQuery {
+  page?: number
+  limit?: number
+  type?: AnalyzeType
+  sort_by?: SortBy
+  sort_order?: SortOrder
+}
+
+// ─── Chat live (en mémoire pendant une session d'analyse) ────────────────────
+
+export interface LiveChatMessage {
+  id: string
+  role: 'user' | 'bot' | 'error'
+  content: string
+  timestamp: Date
+}
+
+// ─── Compte utilisateur & préférences ────────────────────────────────────────
+
+export interface User {
+  id: string
+  email: string
+  displayName: string | null
+  avatarUrl: string | null
+  bio: string | null
+  createdAt: string
+}
+
+export interface AppearanceSettings {
+  theme: 'light' | 'dark' | 'system'
+  density: 'comfortable' | 'compact'
+}
+
+export interface AnalysisSettings {
+  defaultLang: string
+  defaultType: 'file' | 'url' | 'prompt'
+}
+
+export interface UserSettings {
+  appearance: AppearanceSettings
+  analysis: AnalysisSettings
+}
+
+export const DEFAULT_SETTINGS: UserSettings = {
+  appearance: { theme: 'system', density: 'comfortable' },
+  analysis: { defaultLang: 'fr', defaultType: 'file' },
+}
+
+export interface SessionInfo {
+  current: boolean
+  userAgent: string | null
+  ip: string
 }

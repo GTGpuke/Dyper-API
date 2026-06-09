@@ -1,39 +1,23 @@
-// Composant d'affichage d'une erreur sous forme de bandeau rouge avec icône et possibilité de fermeture.
+// Bandeau d'erreur cohérent avec le format d'erreur API { code, message }.
+import type { ApiError } from '../../types'
 
-interface ErrorBannerProps {
-  message: string
-  onDismiss?: () => void
-}
+export function ErrorBanner({ error }: { error: ApiError | string }) {
+  const message = typeof error === 'string' ? error : error.message
+  const code = typeof error === 'string' ? undefined : error.code
 
-export function ErrorBanner({ message, onDismiss }: ErrorBannerProps) {
   return (
-    <div className="flex items-start gap-3 bg-red-900/50 border border-red-700 rounded-lg px-4 py-3 text-red-200">
-      {/* Icône d'alerte. */}
-      <svg
-        className="h-5 w-5 mt-0.5 shrink-0 text-red-400"
-        xmlns="http://www.w3.org/2000/svg"
-        viewBox="0 0 20 20"
-        fill="currentColor"
-        aria-hidden="true"
-      >
+    <div className="flex items-start gap-3 rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
+      <svg className="mt-0.5 h-5 w-5 shrink-0" viewBox="0 0 20 20" fill="currentColor" aria-hidden>
         <path
           fillRule="evenodd"
-          d="M8.485 2.495c.673-1.167 2.357-1.167 3.03 0l6.28 10.875c.673 1.167-.17 2.625-1.516 2.625H3.72c-1.347 0-2.189-1.458-1.515-2.625L8.485 2.495zM10 5a.75.75 0 01.75.75v3.5a.75.75 0 01-1.5 0v-3.5A.75.75 0 0110 5zm0 9a1 1 0 100-2 1 1 0 000 2z"
+          d="M10 18a8 8 0 100-16 8 8 0 000 16zM9 9a1 1 0 012 0v4a1 1 0 11-2 0V9zm1-5a1 1 0 100 2 1 1 0 000-2z"
           clipRule="evenodd"
         />
       </svg>
-      <span className="flex-1 text-sm">{message}</span>
-      {onDismiss && (
-        <button
-          onClick={onDismiss}
-          className="text-red-400 hover:text-red-200 transition-colors"
-          aria-label="Fermer l'erreur"
-        >
-          <svg className="h-4 w-4" viewBox="0 0 20 20" fill="currentColor">
-            <path d="M6.28 5.22a.75.75 0 00-1.06 1.06L8.94 10l-3.72 3.72a.75.75 0 101.06 1.06L10 11.06l3.72 3.72a.75.75 0 101.06-1.06L11.06 10l3.72-3.72a.75.75 0 00-1.06-1.06L10 8.94 6.28 5.22z" />
-          </svg>
-        </button>
-      )}
+      <div>
+        <p className="font-medium">{message}</p>
+        {code && <p className="mt-0.5 font-mono text-xs text-red-500">{code}</p>}
+      </div>
     </div>
   )
 }

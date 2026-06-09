@@ -30,6 +30,7 @@ export async function chat(
   try {
     await ChatExchange.create({
       analysis_request_id: context.requestId ?? null,
+      user_id: request.authUser?.id ?? null,
       question,
       answer,
       lang: resolvedLang,

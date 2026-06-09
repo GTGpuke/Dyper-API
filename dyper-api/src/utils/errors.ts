@@ -109,6 +109,37 @@ export class RateLimitExceededError extends AppError {
   }
 }
 
+/** Authentification requise ou identifiants invalides (401). */
+export class UnauthorizedError extends AppError {
+  constructor(
+    message = 'Authentification requise ou identifiants invalides.',
+    details: ErrorDetails = {}
+  ) {
+    super(message, 'UNAUTHORIZED', 401, details);
+  }
+}
+
+/** Accès refusé — droits insuffisants (403). */
+export class ForbiddenError extends AppError {
+  constructor(message = 'Accès refusé.', details: ErrorDetails = {}) {
+    super(message, 'FORBIDDEN', 403, details);
+  }
+}
+
+/** Ressource introuvable (404). */
+export class NotFoundError extends AppError {
+  constructor(message = 'Ressource introuvable.', details: ErrorDetails = {}) {
+    super(message, 'NOT_FOUND', 404, details);
+  }
+}
+
+/** Conflit — ressource déjà existante (409). */
+export class ConflictError extends AppError {
+  constructor(message = 'Cette ressource existe déjà.', details: ErrorDetails = {}) {
+    super(message, 'CONFLICT', 409, details);
+  }
+}
+
 /** Erreur interne non catégorisée (500). */
 export class InternalError extends AppError {
   constructor(details: ErrorDetails = {}) {

@@ -1,3 +1,55 @@
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
+
+@layer base {
+  html,
+  body,
+  #root {
+    height: 100%;
+  }
+
+  body {
+    @apply bg-ink-50 text-ink-800 antialiased transition-colors dark:bg-ink-900 dark:text-ink-100;
+    font-feature-settings: 'cv11', 'ss01';
+  }
+
+  /* Barre de défilement discrète, cohérente avec l'esthétique éditoriale. */
+  ::-webkit-scrollbar {
+    width: 10px;
+    height: 10px;
+  }
+  ::-webkit-scrollbar-thumb {
+    @apply rounded-full bg-ink-200 dark:bg-ink-700;
+    border: 2px solid transparent;
+    background-clip: content-box;
+  }
+  ::-webkit-scrollbar-thumb:hover {
+    @apply bg-ink-300 dark:bg-ink-600;
+    border: 2px solid transparent;
+    background-clip: content-box;
+  }
+}
+
+@layer components {
+  /* Surface de carte réutilisable (s'adapte au thème). */
+  .surface {
+    @apply rounded-2xl border border-ink-200 bg-white shadow-card dark:border-ink-800 dark:bg-ink-800/60;
+  }
+
+  /* Libellé de section en petites capitales. */
+  .eyebrow {
+    @apply text-xs font-semibold uppercase tracking-[0.14em] text-ink-400 dark:text-ink-500;
+  }
+
+  /* Densité compacte : resserre l'espacement interne des cartes. */
+  .density-compact .surface {
+    @apply rounded-xl;
+  }
+  .density-compact .surface.p-6 {
+    @apply p-4;
+  }
+  .density-compact .surface.p-5 {
+    @apply p-3;
+  }
+}

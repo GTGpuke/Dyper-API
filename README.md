@@ -9,10 +9,10 @@ Plateforme de reconnaissance visuelle basée sur YOLO. Accepte une image, une vi
 | Module | Technologie | Rôle | Port |
 |---|---|---|---|
 | `dyper-ai` | **Python / FastAPI / Ultralytics YOLO** | Inférence visuelle locale | 8000 |
-| `dyper-api` | **Fastify / TypeScript** (passerelle pro) | API publique + historique (SQLite) | 3000 |
-| `dyper-web` | **React / TypeScript / Vite / Tailwind** | Interface chatbot | 5173 |
+| `dyper-api` | **Fastify / TypeScript** (passerelle pro) | API publique + comptes + historique (SQLite) | 3000 |
+| `dyper-web` | **React / TypeScript / Vite / Tailwind** | SPA : auth, analyse, historique, détail, dashboard, paramètres (mode sombre) | 5173 |
 
-**Stack qualité de la passerelle `dyper-api`** : Fastify 5, TypeScript strict, Sequelize (SQLite), Winston, Swagger (`/docs`), Biome (lint/format), Jest, PM2, Docker, CI GitHub Actions. Authentification frontend → passerelle par header **`X-App-Key`** ; passerelle → `dyper-ai` par header **`X-Internal-Key`**.
+**Stack qualité de la passerelle `dyper-api`** : Fastify 5, TypeScript strict, Sequelize (SQLite), Winston, Swagger (`/docs`), Biome (lint/format), Jest, PM2, Docker, CI GitHub Actions. Authentification frontend → passerelle par header **`X-App-Key`** ; passerelle → `dyper-ai` par header **`X-Internal-Key`**. **Comptes utilisateurs** : JWT en cookie httpOnly (bcrypt), données cloisonnées par utilisateur.
 
 > Le flux complet, les contrats inter-services et les détails d'implémentation sont documentés dans [docs/docs.md](docs/docs.md).
 
@@ -25,6 +25,7 @@ Prérequis : Docker + le modèle YOLO dans `./model` (voir [Modèles YOLO](#mod�
 ```bash
 # À la racine, créer un .env avec au moins :
 #   APP_KEY=$(openssl rand -hex 32)
+#   JWT_SECRET=$(openssl rand -hex 32)
 #   AI_INTERNAL_KEY=$(openssl rand -hex 32)
 #   GROQ_API_KEY=...        # optionnel (chat)
 docker compose up --build
@@ -48,6 +49,7 @@ python -m venv .venv
 # source .venv/bin/activate     # Linux / macOS
 pip install -r requirements.txt
 cp .env.example .env            # éditer AI_INTERNAL_KEY, variante, etc.
+# Windows PowerShell : Copy-Item .env.example .env
 uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
 ```
 Service sur http://localhost:8000 (Swagger : `/docs`).
@@ -57,7 +59,8 @@ Service sur http://localhost:8000 (Swagger : `/docs`).
 ```bash
 cd dyper-api
 npm install
-cp .env.example .env            # APP_KEY, AI_INTERNAL_KEY (identique à dyper-ai), CORS_ORIGIN…
+cp .env.example .env            # APP_KEY, JWT_SECRET, AI_INTERNAL_KEY (= dyper-ai), CORS_ORIGIN…
+# Windows PowerShell : Copy-Item .env.example .env
 npm run dev
 ```
 Passerelle sur http://localhost:3000 (Swagger : `/docs`).
@@ -68,6 +71,7 @@ Passerelle sur http://localhost:3000 (Swagger : `/docs`).
 cd dyper-web
 npm install
 cp .env.example .env            # VITE_API_URL + VITE_APP_KEY (= APP_KEY de dyper-api)
+# Windows PowerShell : Copy-Item .env.example .env
 npm run dev
 ```
 Interface sur http://localhost:5173.
@@ -99,19 +103,22 @@ Interface sur http://localhost:5173.
 |---|---|---|
 | `CORS_ORIGIN` | *(requis)* | Origines CORS (virgules) — le front dyper-web |
 | `APP_KEY` | *(requis)* | Clé applicative attendue dans `X-App-Key` |
+| `JWT_SECRET` | *(requis)* | Secret de signature des JWT d'authentification (`openssl rand -hex 32`) |
 | `AI_SERVICE_URL` | *(requis)* | URL de dyper-ai |
 | `AI_INTERNAL_KEY` | *(requis)* | Identique à celle de dyper-ai |
-| `DB_STORAGE` | `./data/dyper.sqlite` | Fichier SQLite (historique) |
+| `DB_STORAGE` | `./data/dyper.sqlite` | Fichier SQLite (comptes + historique) |
 | `GROQ_API_KEY` | — | Clé Groq (requise pour `/api/chat`) |
 | `MAX_FILE_SIZE_MB` | `10` | Taille max upload |
 
 ### dyper-web — `.env`
 | Variable | Défaut | Description |
 |---|---|---|
-| `VITE_API_URL` | `http://localhost:3000` | URL de dyper-api |
+| `VITE_API_URL` | *(vide en dev)* | URL de dyper-api. **Laisser vide en dev** → proxy Vite (cookie de session first-party) |
 | `VITE_APP_KEY` | — | Clé `X-App-Key` (= `APP_KEY` de dyper-api) |
 
 > **Important :** `AI_INTERNAL_KEY` doit être identique côté `dyper-ai` et `dyper-api`, et `VITE_APP_KEY` (web) doit valoir `APP_KEY` (api).
+>
+> **Comptes :** l'app est protégée par authentification (JWT en cookie httpOnly). Chaque utilisateur ne voit que ses propres analyses. En dev, la base SQLite est synchronisée sans migration destructive ; **après un changement de schéma, supprimer `dyper-api/data/dyper.sqlite`** pour la recréer.
 
 ---
 

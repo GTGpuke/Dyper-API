@@ -6,6 +6,7 @@ import type { AnalyzeType } from '../types';
 interface AnalysisAttributes {
   id: string;
   request_id: string;
+  user_id: string | null;
   type: AnalyzeType;
   lang: string;
   model: string;
@@ -20,7 +21,10 @@ interface AnalysisAttributes {
   created_at: Date;
 }
 
-type AnalysisCreationAttributes = Optional<AnalysisAttributes, 'id' | 'indoor' | 'created_at'>;
+type AnalysisCreationAttributes = Optional<
+  AnalysisAttributes,
+  'id' | 'user_id' | 'indoor' | 'created_at'
+>;
 
 class Analysis
   extends Model<AnalysisAttributes, AnalysisCreationAttributes>
@@ -28,6 +32,7 @@ class Analysis
 {
   declare id: string;
   declare request_id: string;
+  declare user_id: string | null;
   declare type: AnalyzeType;
   declare lang: string;
   declare model: string;
@@ -46,6 +51,7 @@ Analysis.init(
   {
     id: { type: DataTypes.UUID, primaryKey: true, defaultValue: DataTypes.UUIDV4 },
     request_id: { type: DataTypes.STRING, allowNull: false, unique: true },
+    user_id: { type: DataTypes.UUID, allowNull: true, defaultValue: null },
     type: { type: DataTypes.STRING, allowNull: false },
     lang: { type: DataTypes.STRING, allowNull: false, defaultValue: 'fr' },
     model: { type: DataTypes.STRING, allowNull: false },

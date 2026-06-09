@@ -3,10 +3,10 @@ import { buildApp } from '../../src/app';
 import aiService from '../../src/services/ai/ai.service';
 import { connectDatabase } from '../../src/services/db/database.service';
 import type { ProcessAiResponse, ProcessOptions } from '../../src/types';
+import { type AuthedUser, registerAndLogin } from '../helpers/auth.helper';
 
 let app: FastifyInstance;
-const APP_KEY = 'test-app-key';
-const HEADERS = { 'x-app-key': APP_KEY };
+let auth: AuthedUser;
 
 function fakeAi(requestId: string): ProcessAiResponse {
   return {
@@ -28,6 +28,7 @@ beforeAll(async () => {
   await connectDatabase();
   app = await buildApp();
   await app.ready();
+  auth = await registerAndLogin(app, 'analysis@test.dev');
   jest
     .spyOn(aiService, 'process')
     .mockImplementation(async (opts: ProcessOptions) => fakeAi(opts.requestId));
@@ -43,17 +44,17 @@ describe('Historique des analyses (/api/analyses)', () => {
     await app.inject({
       method: 'POST',
       url: '/api/analyze/prompt',
-      headers: HEADERS,
+      headers: auth.headers,
       payload: { prompt: 'un' },
     });
     await app.inject({
       method: 'POST',
       url: '/api/analyze/prompt',
-      headers: HEADERS,
+      headers: auth.headers,
       payload: { prompt: 'deux' },
     });
 
-    const res = await app.inject({ method: 'GET', url: '/api/analyses', headers: HEADERS });
+    const res = await app.inject({ method: 'GET', url: '/api/analyses', headers: auth.headers });
     expect(res.statusCode).toBe(200);
     const body = res.json();
     expect(Array.isArray(body.data)).toBe(true);
@@ -63,9 +64,13 @@ describe('Historique des analyses (/api/analyses)', () => {
   });
 
   it('retourne le détail d’une analyse par son id', async () => {
-    const list = await app.inject({ method: 'GET', url: '/api/analyses', headers: HEADERS });
+    const list = await app.inject({ method: 'GET', url: '/api/analyses', headers: auth.headers });
     const id = list.json().data[0].id;
-    const res = await app.inject({ method: 'GET', url: `/api/analyses/${id}`, headers: HEADERS });
+    const res = await app.inject({
+      method: 'GET',
+      url: `/api/analyses/${id}`,
+      headers: auth.headers,
+    });
     expect(res.statusCode).toBe(200);
     expect(res.json().data.id).toBe(id);
   });
@@ -74,7 +79,7 @@ describe('Historique des analyses (/api/analyses)', () => {
     const res = await app.inject({
       method: 'GET',
       url: '/api/analyses/00000000-0000-0000-0000-000000000000',
-      headers: HEADERS,
+      headers: auth.headers,
     });
     expect(res.statusCode).toBe(404);
     expect(res.json().error.code).toBe('NOT_FOUND');

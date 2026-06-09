@@ -22,11 +22,13 @@ interface AnalyzeUrlBody extends AnalyzeBody {
 async function persistAnalysis(
   result: ProcessAiResponse,
   type: AnalyzeType,
-  lang: string
+  lang: string,
+  userId: string | null
 ): Promise<void> {
   try {
     await Analysis.create({
       request_id: result.requestId,
+      user_id: userId,
       type,
       lang,
       model: result.model,
@@ -99,7 +101,8 @@ export async function analyzeFile(request: FastifyRequest, reply: FastifyReply):
   await persistAnalysis(
     aiResponse,
     mimetype.startsWith('video/') ? 'video' : 'image',
-    resolvedLang
+    resolvedLang,
+    request.authUser?.id ?? null
   );
 
   sendResult(reply, requestId, processingTime, aiResponse, resolvedLang);
@@ -121,7 +124,7 @@ export async function analyzeUrl(
   const resolvedLang = lang ?? 'fr';
 
   logger.info('Analyse par URL terminée.', { requestId, processingTime });
-  await persistAnalysis(aiResponse, 'image', resolvedLang);
+  await persistAnalysis(aiResponse, 'image', resolvedLang, request.authUser?.id ?? null);
 
   sendResult(reply, requestId, processingTime, aiResponse, resolvedLang);
 }
@@ -142,7 +145,7 @@ export async function analyzePrompt(
   const resolvedLang = lang ?? 'fr';
 
   logger.info('Analyse par prompt terminée.', { requestId, processingTime });
-  await persistAnalysis(aiResponse, 'prompt', resolvedLang);
+  await persistAnalysis(aiResponse, 'prompt', resolvedLang, request.authUser?.id ?? null);
 
   sendResult(reply, requestId, processingTime, aiResponse, resolvedLang);
 }

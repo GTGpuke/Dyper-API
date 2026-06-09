@@ -36,6 +36,9 @@ export const env = {
   // Clé applicative transmise par le frontend dans le header X-App-Key.
   APP_KEY: required('APP_KEY'),
 
+  // Secret de signature des JWT d'authentification (cookie httpOnly « dyper_token »).
+  JWT_SECRET: required('JWT_SECRET'),
+
   // Service d'inférence dyper-ai.
   AI_SERVICE_URL: required('AI_SERVICE_URL'),
   AI_INTERNAL_KEY: required('AI_INTERNAL_KEY'),

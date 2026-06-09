@@ -3,9 +3,10 @@ import { buildApp } from '../../src/app';
 import aiService from '../../src/services/ai/ai.service';
 import { connectDatabase } from '../../src/services/db/database.service';
 import type { ProcessAiResponse, ProcessOptions } from '../../src/types';
+import { type AuthedUser, registerAndLogin } from '../helpers/auth.helper';
 
 let app: FastifyInstance;
-const APP_KEY = 'test-app-key';
+let auth: AuthedUser;
 
 function fakeAi(requestId: string): ProcessAiResponse {
   return {
@@ -27,6 +28,7 @@ beforeAll(async () => {
   await connectDatabase();
   app = await buildApp();
   await app.ready();
+  auth = await registerAndLogin(app, 'analyze@test.dev');
 });
 
 afterAll(async () => {
@@ -54,7 +56,7 @@ describe('POST /api/analyze/prompt', () => {
     const res = await app.inject({
       method: 'POST',
       url: '/api/analyze/prompt',
-      headers: { 'x-app-key': APP_KEY },
+      headers: auth.headers,
       payload: { prompt: 'que vois-tu ?' },
     });
     expect(res.statusCode).toBe(200);
@@ -71,7 +73,7 @@ describe('POST /api/analyze/prompt', () => {
     const res = await app.inject({
       method: 'POST',
       url: '/api/analyze/prompt',
-      headers: { 'x-app-key': APP_KEY },
+      headers: auth.headers,
       payload: {},
     });
     expect(res.statusCode).toBe(400);
@@ -84,7 +86,7 @@ describe('POST /api/analyze/url', () => {
     const res = await app.inject({
       method: 'POST',
       url: '/api/analyze/url',
-      headers: { 'x-app-key': APP_KEY },
+      headers: auth.headers,
       payload: { url: 'https://example.com/cat.jpg', lang: 'en' },
     });
     expect(res.statusCode).toBe(200);
@@ -97,7 +99,7 @@ describe('POST /api/analyze/url', () => {
     const res = await app.inject({
       method: 'POST',
       url: '/api/analyze/url',
-      headers: { 'x-app-key': APP_KEY },
+      headers: auth.headers,
       payload: { url: 'ftp://example.com/x' },
     });
     expect(res.statusCode).toBe(400);

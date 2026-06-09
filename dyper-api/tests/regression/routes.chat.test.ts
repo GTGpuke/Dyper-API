@@ -2,10 +2,10 @@ import type { FastifyInstance } from 'fastify';
 import { buildApp } from '../../src/app';
 import groqService from '../../src/services/chat/groq.service';
 import { connectDatabase } from '../../src/services/db/database.service';
+import { type AuthedUser, registerAndLogin } from '../helpers/auth.helper';
 
 let app: FastifyInstance;
-const APP_KEY = 'test-app-key';
-const HEADERS = { 'x-app-key': APP_KEY };
+let auth: AuthedUser;
 
 // Contexte d'analyse minimal valide pour le corps de /api/chat.
 const CONTEXT = {
@@ -25,6 +25,7 @@ beforeAll(async () => {
   await connectDatabase();
   app = await buildApp();
   await app.ready();
+  auth = await registerAndLogin(app, 'chat@test.dev');
 });
 
 afterAll(async () => {
@@ -49,7 +50,7 @@ describe('POST /api/chat', () => {
     const res = await app.inject({
       method: 'POST',
       url: '/api/chat',
-      headers: HEADERS,
+      headers: auth.headers,
       payload: { question: 'Combien ?' },
     });
     expect(res.statusCode).toBe(400);
@@ -61,7 +62,7 @@ describe('POST /api/chat', () => {
     const res = await app.inject({
       method: 'POST',
       url: '/api/chat',
-      headers: HEADERS,
+      headers: auth.headers,
       payload: { question: 'Combien de personnes ?', context: CONTEXT },
     });
     expect(res.statusCode).toBe(503);
@@ -77,7 +78,7 @@ describe('POST /api/chat', () => {
     const res = await app.inject({
       method: 'POST',
       url: '/api/chat',
-      headers: HEADERS,
+      headers: auth.headers,
       payload: { question: 'Combien de personnes ?', context: CONTEXT, lang: 'fr' },
     });
     expect(res.statusCode).toBe(200);

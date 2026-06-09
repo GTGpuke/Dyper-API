@@ -1,5 +1,7 @@
+import cookie from '@fastify/cookie';
 import cors from '@fastify/cors';
 import helmet from '@fastify/helmet';
+import jwt from '@fastify/jwt';
 import multipart from '@fastify/multipart';
 import rateLimit from '@fastify/rate-limit';
 import swagger from '@fastify/swagger';
@@ -11,9 +13,12 @@ import Fastify, {
   type FastifyServerOptions,
 } from 'fastify';
 import { verifyAppKey } from './middlewares/verifyAppKey';
+import { verifyAuth } from './middlewares/verifyAuth';
 import { analysisRoutes } from './routes/analysis/analysis.routes';
 import { analyzeRoutes } from './routes/analyze/analyze.routes';
+import { authRoutes } from './routes/auth/auth.routes';
 import { chatRoutes } from './routes/chat/chat.routes';
+import { meRoutes } from './routes/me/me.routes';
 import aiService from './services/ai/ai.service';
 import sequelize from './services/db/database.service';
 import { env } from './services/env.service';
@@ -45,6 +50,23 @@ export async function buildApp(opts: FastifyServerOptions = {}): Promise<Fastify
     ajv: { customOptions: { strict: false } },
     ...opts,
   });
+
+  // Tolère un corps JSON vide (POST sans payload, ex. logout) au lieu de lever une 400.
+  app.addContentTypeParser(
+    'application/json',
+    { parseAs: 'string' },
+    (_req, body, done) => {
+      if (!body || (typeof body === 'string' && body.trim() === '')) {
+        done(null, undefined);
+        return;
+      }
+      try {
+        done(null, JSON.parse(body as string));
+      } catch (err) {
+        done(err as Error, undefined);
+      }
+    }
+  );
 
   // Normalise toutes les erreurs au format Dyper : { success, requestId, error: { code, message, details } }.
   app.setErrorHandler((error: FastifyError, request, reply) => {
@@ -95,7 +117,7 @@ export async function buildApp(opts: FastifyServerOptions = {}): Promise<Fastify
   await app.register(cors, {
     origin: env.CORS_ORIGIN,
     credentials: true,
-    methods: ['GET', 'POST', 'OPTIONS'],
+    methods: ['GET', 'POST', 'PATCH', 'PUT', 'DELETE', 'OPTIONS'],
     allowedHeaders: ['Content-Type', 'Authorization', 'X-App-Key'],
   });
 
@@ -107,6 +129,13 @@ export async function buildApp(opts: FastifyServerOptions = {}): Promise<Fastify
       fileSize: env.MAX_FILE_SIZE_MB * 1024 * 1024,
       files: 1,
     },
+  });
+
+  // Cookies + JWT : le token d'authentification est lu depuis le cookie httpOnly « dyper_token ».
+  await app.register(cookie);
+  await app.register(jwt, {
+    secret: env.JWT_SECRET,
+    cookie: { cookieName: 'dyper_token', signed: false },
   });
 
   await app.register(swagger, {
@@ -174,9 +203,19 @@ export async function buildApp(opts: FastifyServerOptions = {}): Promise<Fastify
 
     apiApp.addHook('onRequest', verifyAppKey);
 
-    await apiApp.register(analyzeRoutes, { prefix: '/api/analyze' });
-    await apiApp.register(chatRoutes, { prefix: '/api/chat' });
-    await apiApp.register(analysisRoutes, { prefix: '/api/analyses' });
+    // Routes d'authentification : publiques (clé applicative seule, sans session utilisateur),
+    // car register/login servent justement à obtenir une session.
+    await apiApp.register(authRoutes, { prefix: '/api/auth' });
+
+    // Sous-scope protégé : exige en plus un JWT valide (verifyAuth attache request.authUser).
+    await apiApp.register(async (protectedApp) => {
+      protectedApp.addHook('onRequest', verifyAuth);
+
+      await protectedApp.register(analyzeRoutes, { prefix: '/api/analyze' });
+      await protectedApp.register(chatRoutes, { prefix: '/api/chat' });
+      await protectedApp.register(analysisRoutes, { prefix: '/api/analyses' });
+      await protectedApp.register(meRoutes, { prefix: '/api/me' });
+    });
   });
 
   return app;
