@@ -52,21 +52,17 @@ export async function buildApp(opts: FastifyServerOptions = {}): Promise<Fastify
   });
 
   // Tolère un corps JSON vide (POST sans payload, ex. logout) au lieu de lever une 400.
-  app.addContentTypeParser(
-    'application/json',
-    { parseAs: 'string' },
-    (_req, body, done) => {
-      if (!body || (typeof body === 'string' && body.trim() === '')) {
-        done(null, undefined);
-        return;
-      }
-      try {
-        done(null, JSON.parse(body as string));
-      } catch (err) {
-        done(err as Error, undefined);
-      }
+  app.addContentTypeParser('application/json', { parseAs: 'string' }, (_req, body, done) => {
+    if (!body || (typeof body === 'string' && body.trim() === '')) {
+      done(null, undefined);
+      return;
     }
-  );
+    try {
+      done(null, JSON.parse(body as string));
+    } catch (err) {
+      done(err as Error, undefined);
+    }
+  });
 
   // Normalise toutes les erreurs au format Dyper : { success, requestId, error: { code, message, details } }.
   app.setErrorHandler((error: FastifyError, request, reply) => {
@@ -126,7 +122,8 @@ export async function buildApp(opts: FastifyServerOptions = {}): Promise<Fastify
 
   await app.register(multipart, {
     limits: {
-      fileSize: env.MAX_FILE_SIZE_MB * 1024 * 1024,
+      // Borne haute (vidéo) ; la limite par type (image vs vidéo) est revérifiée dans le contrôleur.
+      fileSize: env.MAX_VIDEO_SIZE_MB * 1024 * 1024,
       files: 1,
     },
   });

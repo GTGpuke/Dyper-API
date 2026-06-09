@@ -43,9 +43,12 @@ export const env = {
   AI_SERVICE_URL: required('AI_SERVICE_URL'),
   AI_INTERNAL_KEY: required('AI_INTERNAL_KEY'),
   AI_REQUEST_TIMEOUT_MS: Number.parseInt(optional('AI_REQUEST_TIMEOUT_MS', '30000'), 10),
+  // Timeout dédié au traitement vidéo (plus long : analyse de nombreuses images par YOLO).
+  AI_VIDEO_TIMEOUT_MS: Number.parseInt(optional('AI_VIDEO_TIMEOUT_MS', '180000'), 10),
 
-  // Upload de fichiers.
+  // Upload de fichiers — taille max image, et taille max vidéo (5 min ≫ 10 Mo).
   MAX_FILE_SIZE_MB: Number.parseInt(optional('MAX_FILE_SIZE_MB', '10'), 10),
+  MAX_VIDEO_SIZE_MB: Number.parseInt(optional('MAX_VIDEO_SIZE_MB', '100'), 10),
 
   // Types MIME autorisés pour les uploads (image + vidéo mp4).
   ALLOWED_MIME_TYPES: ['image/jpeg', 'image/png', 'image/webp', 'image/gif', 'video/mp4'],

@@ -1,26 +1,46 @@
-// Fonctions utilitaires de gestion des fichiers : validation, prévisualisation et nettoyage mémoire.
+// Fonctions utilitaires de gestion des fichiers : validation (type, taille, durée), prévisualisation.
 
-// Types MIME acceptés par l'application.
-const ALLOWED_MIME_TYPES = ['image/jpeg', 'image/png', 'image/webp', 'image/gif', 'video/mp4']
-// Taille maximale autorisée en octets (10 Mo).
-const MAX_FILE_SIZE_BYTES = 10 * 1024 * 1024
+const IMAGE_MIME_TYPES = ['image/jpeg', 'image/png', 'image/webp', 'image/gif']
+const VIDEO_MIME_TYPES = ['video/mp4']
 
-export function validateFile(file: File): { valid: boolean; error?: string } {
-  if (!ALLOWED_MIME_TYPES.includes(file.type)) {
-    return { valid: false, error: 'Format de fichier non supporté. Utilisez JPEG, PNG, WebP, GIF ou MP4.' }
-  }
-  if (file.size > MAX_FILE_SIZE_BYTES) {
-    return { valid: false, error: 'Le fichier dépasse la taille maximale autorisée (10 Mo).' }
-  }
+// Tailles maximales par type.
+const MAX_IMAGE_SIZE_BYTES = 10 * 1024 * 1024 // 10 Mo
+const MAX_VIDEO_SIZE_BYTES = 100 * 1024 * 1024 // 100 Mo
+
+// Durée maximale autorisée pour une vidéo (secondes).
+export const VIDEO_MAX_DURATION_S = 300
+
+// Indique si le fichier est une vidéo.
+export function isVideoFile(file: File): boolean {
+  return file.type.startsWith('video/')
+}
+
+// Résultat de validation : la raison permet à l'appelant de choisir un message traduit.
+export type FileCheck = { valid: true } | { valid: false; reason: 'type' | 'imageSize' | 'videoSize' }
+
+export function validateFile(file: File): FileCheck {
+  const isImage = IMAGE_MIME_TYPES.includes(file.type)
+  const isVideo = VIDEO_MIME_TYPES.includes(file.type)
+  if (!isImage && !isVideo) return { valid: false, reason: 'type' }
+  if (isImage && file.size > MAX_IMAGE_SIZE_BYTES) return { valid: false, reason: 'imageSize' }
+  if (isVideo && file.size > MAX_VIDEO_SIZE_BYTES) return { valid: false, reason: 'videoSize' }
   return { valid: true }
 }
 
-// Convertit un objet File en URL d'objet pour la prévisualisation.
-export function createPreviewUrl(file: File): string {
-  return URL.createObjectURL(file)
-}
-
-// Révoque une URL d'objet pour libérer la mémoire.
-export function revokePreviewUrl(url: string): void {
-  URL.revokeObjectURL(url)
+// Lit la durée d'une vidéo (secondes) via ses métadonnées, sans la télécharger entièrement.
+export function getVideoDuration(file: File): Promise<number> {
+  return new Promise((resolve, reject) => {
+    const url = URL.createObjectURL(file)
+    const video = document.createElement('video')
+    video.preload = 'metadata'
+    video.onloadedmetadata = () => {
+      URL.revokeObjectURL(url)
+      resolve(video.duration)
+    }
+    video.onerror = () => {
+      URL.revokeObjectURL(url)
+      reject(new Error('Lecture des métadonnées vidéo impossible.'))
+    }
+    video.src = url
+  })
 }

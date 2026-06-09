@@ -33,8 +33,14 @@ class Settings(BaseSettings):
     IMAGE_MAX_DIM: int = 1280
     # Timeout (secondes) pour le téléchargement d'une image fournie par URL.
     IMAGE_FETCH_TIMEOUT: float = 10.0
-    # Nombre de frames extraites d'une vidéo pour l'analyse.
-    VIDEO_FRAMES: int = 5
+
+    # --- Vidéo ---
+    # Durée maximale autorisée pour une vidéo (secondes). Au-delà, l'analyse est refusée.
+    VIDEO_MAX_DURATION_S: float = 300.0
+    # Cadence d'échantillonnage cible des images analysées (images par seconde).
+    VIDEO_SAMPLE_FPS: float = 1.0
+    # Plafond d'images analysées, quelle que soit la durée (borne le coût d'inférence).
+    VIDEO_MAX_FRAMES: int = 60
 
     model_config = SettingsConfigDict(env_file=".env", extra="ignore")
 

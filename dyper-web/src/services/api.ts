@@ -49,7 +49,9 @@ export async function analyzeFile(file: File, prompt?: string, lang = 'fr'): Pro
   form.append('file', file)
   if (prompt) form.append('prompt', prompt)
   form.append('lang', lang)
-  const { data } = await client.post<ApiResponse<AnalysisResult>>('/api/analyze', form)
+  // L'analyse vidéo est plus longue (nombreuses images) : timeout étendu côté client.
+  const timeout = file.type.startsWith('video/') ? 180_000 : undefined
+  const { data } = await client.post<ApiResponse<AnalysisResult>>('/api/analyze', form, { timeout })
   return unwrap(data)
 }
 

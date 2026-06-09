@@ -105,3 +105,45 @@ describe('POST /api/analyze/url', () => {
     expect(res.statusCode).toBe(400);
   });
 });
+
+// Construit un corps multipart/form-data minimal contenant un seul fichier.
+function multipartFile(content: Buffer, filename: string, contentType: string) {
+  const boundary = '----dypertestboundary';
+  const head = Buffer.from(
+    `--${boundary}\r\nContent-Disposition: form-data; name="file"; filename="${filename}"\r\n` +
+      `Content-Type: ${contentType}\r\n\r\n`
+  );
+  const tail = Buffer.from(`\r\n--${boundary}--\r\n`);
+  return {
+    payload: Buffer.concat([head, content, tail]),
+    contentType: `multipart/form-data; boundary=${boundary}`,
+  };
+}
+
+describe('POST /api/analyze (fichier)', () => {
+  it('accepte un petit fichier image et retourne le résultat', async () => {
+    const { payload, contentType } = multipartFile(Buffer.from('img'), 'photo.png', 'image/png');
+    const res = await app.inject({
+      method: 'POST',
+      url: '/api/analyze',
+      headers: { ...auth.headers, 'content-type': contentType },
+      payload,
+    });
+    expect(res.statusCode).toBe(200);
+    expect(res.json().success).toBe(true);
+  });
+
+  it('rejette une image dépassant la taille maximale → 413', async () => {
+    // 11 Mo > limite image (10 Mo) mais < limite vidéo (100 Mo) : la borne par type doit s'appliquer.
+    const big = Buffer.alloc(11 * 1024 * 1024, 0x41);
+    const { payload, contentType } = multipartFile(big, 'big.png', 'image/png');
+    const res = await app.inject({
+      method: 'POST',
+      url: '/api/analyze',
+      headers: { ...auth.headers, 'content-type': contentType },
+      payload,
+    });
+    expect(res.statusCode).toBe(413);
+    expect(res.json().error.code).toBe('FILE_TOO_LARGE');
+  });
+});

@@ -3,8 +3,39 @@
 import base64
 from unittest.mock import MagicMock, patch
 
+import cv2
+import numpy as np
 import pytest
 from PIL import Image
+
+
+def _mock_cap(total_frames: float, fps: float) -> MagicMock:
+    """Construit un faux cv2.VideoCapture exposant un nombre de frames et un FPS donnés."""
+    cap = MagicMock()
+
+    def _get(prop: int) -> float:
+        if prop == cv2.CAP_PROP_FRAME_COUNT:
+            return float(total_frames)
+        if prop == cv2.CAP_PROP_FPS:
+            return float(fps)
+        return 0.0
+
+    cap.get.side_effect = _get
+    cap.read.return_value = (True, np.ones((50, 50, 3), dtype="uint8") * 128)
+    return cap
+
+
+def _run_extract(cap: MagicMock):
+    """Exécute extract_frames avec les accès disque/temp mockés autour d'un cap donné."""
+    with (
+        patch("app.services.video.cv2.VideoCapture", return_value=cap),
+        patch("app.services.video.tempfile.mkstemp", return_value=(0, "/tmp/fake.mp4")),
+        patch("app.services.video.os.fdopen", MagicMock()),
+        patch("app.services.video.os.path.exists", return_value=False),
+    ):
+        from app.services.video import extract_frames
+
+        return extract_frames(base64.b64encode(b"fake_video_content").decode())
 
 
 @pytest.mark.regression
@@ -13,77 +44,66 @@ class TestPipelineVideo:
 
     def test_extract_frames_retourne_liste_images(self):
         """Vérifie que extract_frames retourne une liste d'images PIL."""
-        # Simulation de cv2.VideoCapture avec 10 frames.
-        mock_cap = MagicMock()
-        mock_cap.get.return_value = 10.0
-        mock_cap.read.return_value = (True, [[[255, 0, 0]] * 100] * 100)
-
-        import numpy as np
-
-        fake_frame = np.ones((100, 100, 3), dtype="uint8") * 128
-        mock_cap.read.return_value = (True, fake_frame)
-
-        with (
-            patch("app.services.video.cv2.VideoCapture", return_value=mock_cap),
-            patch("app.services.video.tempfile.mkstemp", return_value=(0, "/tmp/fake.mp4")),
-            patch("app.services.video.os.fdopen", MagicMock()),
-            patch("app.services.video.os.path.exists", return_value=False),
-        ):
-            from app.services.video import extract_frames
-
-            # Encodage base64 vide (le fichier est mocké).
-            video_b64 = base64.b64encode(b"fake_video_content").decode()
-            frames = extract_frames(video_b64, n_frames=5)
-
+        # 50 frames à 10 fps → durée 5 s → ~5 images à la cadence 1/s.
+        frames = _run_extract(_mock_cap(total_frames=50, fps=10))
         assert isinstance(frames, list)
         assert all(isinstance(f, Image.Image) for f in frames)
+        assert len(frames) == 5
 
     def test_extract_frames_vide_si_pas_de_frames(self):
         """Vérifie que extract_frames retourne une liste vide si la vidéo n'a pas de frames."""
-        mock_cap = MagicMock()
-        mock_cap.get.return_value = 0.0
-
-        with (
-            patch("app.services.video.cv2.VideoCapture", return_value=mock_cap),
-            patch("app.services.video.tempfile.mkstemp", return_value=(0, "/tmp/fake.mp4")),
-            patch("app.services.video.os.fdopen", MagicMock()),
-            patch("app.services.video.os.path.exists", return_value=False),
-        ):
-            from app.services.video import extract_frames
-
-            video_b64 = base64.b64encode(b"empty").decode()
-            frames = extract_frames(video_b64, n_frames=5)
-
+        frames = _run_extract(_mock_cap(total_frames=0, fps=30))
         assert frames == []
 
-    def test_extract_frames_5_positions(self):
-        """Vérifie que 5 frames sont extraites aux positions correctes."""
-        import numpy as np
+    def test_cadence_un_par_seconde_video_courte(self):
+        """Vérifie ~1 image/seconde sur une vidéo courte (40 frames à 10 fps → 4 s → 4 images)."""
+        frames = _run_extract(_mock_cap(total_frames=40, fps=10))
+        assert len(frames) == 4
 
-        fake_frame = np.ones((50, 50, 3), dtype="uint8") * 200
-        mock_cap = MagicMock()
-        mock_cap.get.return_value = 100.0
-        mock_cap.read.return_value = (True, fake_frame)
+    def test_plafond_60_images_video_longue(self):
+        """Vérifie le plafond : 3000 frames à 30 fps → 100 s → cadence 100 mais plafonné à 60."""
+        frames = _run_extract(_mock_cap(total_frames=3000, fps=30))
+        assert len(frames) == 60
 
-        with (
-            patch("app.services.video.cv2.VideoCapture", return_value=mock_cap),
-            patch("app.services.video.tempfile.mkstemp", return_value=(0, "/tmp/fake.mp4")),
-            patch("app.services.video.os.fdopen", MagicMock()),
-            patch("app.services.video.os.path.exists", return_value=False),
-        ):
-            from app.services.video import extract_frames
+    def test_duree_trop_longue_leve_erreur(self):
+        """Vérifie qu'une vidéo > 5 min lève VideoTooLongError (9000 frames à 25 fps = 360 s)."""
+        from app.services.video import VideoTooLongError
 
-            video_b64 = base64.b64encode(b"fake").decode()
-            frames = extract_frames(video_b64, n_frames=5)
+        with pytest.raises(VideoTooLongError):
+            _run_extract(_mock_cap(total_frames=9000, fps=25))
 
-        assert len(frames) == 5
+    def test_fps_invalide_utilise_repli(self):
+        """Vérifie le repli FPS (fps<=0) : 50 frames, repli 25 fps → 2 s → 2 images."""
+        frames = _run_extract(_mock_cap(total_frames=50, fps=0))
+        assert len(frames) == 2
 
     def test_base64_invalide_leve_value_error(self):
         """Vérifie qu'un base64 invalide lève une ValueError (mappée en 422 par la route)."""
         from app.services.video import extract_frames
 
         with pytest.raises(ValueError):
-            extract_frames("!!!pas-du-base64!!!", n_frames=5)
+            extract_frames("!!!pas-du-base64!!!")
+
+    def test_route_refuse_video_trop_longue(self, client):
+        """Vérifie que la route /process renvoie 422 quand la vidéo est trop longue."""
+        from app.services.video import VideoTooLongError
+
+        with patch(
+            "app.services.video.extract_frames",
+            side_effect=VideoTooLongError(
+                "La vidéo dépasse la durée maximale autorisée de 5 minutes."
+            ),
+        ):
+            res = client.post(
+                "/process",
+                json={
+                    "requestId": "vid-too-long",
+                    "type": "video",
+                    "videoBase64": base64.b64encode(b"x").decode(),
+                },
+            )
+        assert res.status_code == 422
+        assert "5 minutes" in res.json()["detail"]
 
 
 @pytest.mark.regression

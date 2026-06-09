@@ -7,7 +7,7 @@ import aiService from '../../services/ai/ai.service';
 import { env } from '../../services/env.service';
 import logger from '../../services/logger.service';
 import type { AnalysisResult, AnalyzeType, ProcessAiResponse } from '../../types';
-import { InvalidFileTypeError, ValidationError } from '../../utils/errors';
+import { FileTooLargeError, InvalidFileTypeError, ValidationError } from '../../utils/errors';
 
 interface AnalyzeBody {
   prompt?: string;
@@ -89,6 +89,13 @@ export async function analyzeFile(request: FastifyRequest, reply: FastifyReply):
 
   if (!fileBuffer || !mimetype) {
     throw new ValidationError('Aucun fichier fourni. Le champ « file » est requis.');
+  }
+
+  // Borne de taille par type : vidéo plus permissive (5 min) que image.
+  const isVideo = mimetype.startsWith('video/');
+  const maxMb = isVideo ? env.MAX_VIDEO_SIZE_MB : env.MAX_FILE_SIZE_MB;
+  if (fileBuffer.length > maxMb * 1024 * 1024) {
+    throw new FileTooLargeError({ maxMb, received: fileBuffer.length });
   }
 
   logger.info('Analyse de fichier démarrée.', { requestId, mimetype });

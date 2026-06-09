@@ -3,7 +3,12 @@ import { useCallback, useState } from 'react'
 import { useDropzone } from 'react-dropzone'
 import { useI18n } from '../../contexts/I18nContext'
 import { cn } from '../../lib/cn'
-import { validateFile } from '../../utils/fileHelpers'
+import {
+  getVideoDuration,
+  isVideoFile,
+  validateFile,
+  VIDEO_MAX_DURATION_S,
+} from '../../utils/fileHelpers'
 import { Button } from '../ui/Button'
 import type { AnalyzeInput } from '../../hooks/useAnalyze'
 
@@ -26,21 +31,49 @@ export function InputPanel({ loading, defaultMode = 'file', onSubmit }: Props) {
   const [mode, setMode] = useState<Mode>(defaultMode)
   const [file, setFile] = useState<File | null>(null)
   const [fileError, setFileError] = useState<string | null>(null)
+  const [checking, setChecking] = useState(false)
   const [url, setUrl] = useState('')
   const [prompt, setPrompt] = useState('')
 
-  const onDrop = useCallback((accepted: File[]) => {
-    const f = accepted[0]
-    if (!f) return
-    const check = validateFile(f)
-    if (!check.valid) {
-      setFileError(t('input.fileError'))
-      setFile(null)
-      return
-    }
-    setFileError(null)
-    setFile(f)
-  }, [t])
+  const onDrop = useCallback(
+    async (accepted: File[]) => {
+      const f = accepted[0]
+      if (!f) return
+
+      // Validation synchrone du type et de la taille (selon image/vidéo).
+      const check = validateFile(f)
+      if (!check.valid) {
+        setFile(null)
+        setFileError(t(check.reason === 'videoSize' ? 'input.videoTooLarge' : 'input.fileError'))
+        return
+      }
+
+      // Pour une vidéo : vérifier la durée (≤ 5 min) via les métadonnées avant d'autoriser l'analyse.
+      if (isVideoFile(f)) {
+        setFileError(null)
+        setFile(null)
+        setChecking(true)
+        try {
+          const duration = await getVideoDuration(f)
+          if (duration > VIDEO_MAX_DURATION_S) {
+            setFileError(t('input.videoTooLong'))
+            return
+          }
+          setFile(f)
+        } catch {
+          // Métadonnées illisibles : on laisse le serveur trancher (garde de durée côté dyper-ai).
+          setFile(f)
+        } finally {
+          setChecking(false)
+        }
+        return
+      }
+
+      setFileError(null)
+      setFile(f)
+    },
+    [t]
+  )
 
   const { getRootProps, getInputProps, isDragActive } = useDropzone({
     onDrop,
@@ -59,7 +92,7 @@ export function InputPanel({ loading, defaultMode = 'file', onSubmit }: Props) {
   }
 
   const canSubmit =
-    (mode === 'file' && !!file) ||
+    (mode === 'file' && !!file && !checking) ||
     (mode === 'url' && url.trim().length > 0) ||
     (mode === 'prompt' && prompt.trim().length > 0)
 
@@ -100,7 +133,9 @@ export function InputPanel({ loading, defaultMode = 'file', onSubmit }: Props) {
             <path d="M12 16V4m0 0L8 8m4-4l4 4" strokeLinecap="round" strokeLinejoin="round" />
             <path d="M4 16v2a2 2 0 002 2h12a2 2 0 002-2v-2" strokeLinecap="round" />
           </svg>
-          {file ? (
+          {checking ? (
+            <p className="text-sm font-medium text-ink-600 dark:text-ink-300">{t('input.checkingVideo')}</p>
+          ) : file ? (
             <p className="text-sm font-medium text-ink-700 dark:text-ink-200">{file.name}</p>
           ) : (
             <>

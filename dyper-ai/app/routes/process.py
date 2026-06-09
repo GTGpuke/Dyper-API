@@ -129,9 +129,9 @@ async def process(
             from app.services import video as video_service
 
             try:
-                frames = video_service.extract_frames(
-                    body.videoBase64, n_frames=settings.VIDEO_FRAMES
-                )
+                frames = video_service.extract_frames(body.videoBase64)
+            except video_service.VideoTooLongError as exc:
+                raise HTTPException(status_code=422, detail=str(exc)) from exc
             except ValueError as exc:
                 raise HTTPException(status_code=422, detail=str(exc)) from exc
 

@@ -18,6 +18,9 @@ class AiService {
         'X-Internal-Key': env.AI_INTERNAL_KEY,
       },
       timeout: env.AI_REQUEST_TIMEOUT_MS,
+      // Une vidéo (jusqu'à 100 Mo) encodée en base64 dépasse les limites de corps par défaut.
+      maxBodyLength: Number.POSITIVE_INFINITY,
+      maxContentLength: Number.POSITIVE_INFINITY,
     });
   }
 
@@ -56,8 +59,11 @@ class AiService {
 
     logger.info('Appel vers dyper-ai en cours.', { requestId, type });
 
+    // La vidéo nécessite un timeout plus long (analyse de nombreuses images par YOLO).
+    const timeout = type === 'video' ? env.AI_VIDEO_TIMEOUT_MS : env.AI_REQUEST_TIMEOUT_MS;
+
     try {
-      const response = await this.client.post<ProcessAiResponse>('/process', payload);
+      const response = await this.client.post<ProcessAiResponse>('/process', payload, { timeout });
       logger.info('Réponse reçue de dyper-ai.', { requestId });
       return response.data;
     } catch (e) {
