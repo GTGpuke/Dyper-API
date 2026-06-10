@@ -1,4 +1,4 @@
-// Composant racine : routage + synchronisation des préférences serveur vers le thème.
+// Composant racine : routage + synchronisation des préférences serveur vers le thème/langue.
 import { useEffect } from 'react'
 import { Navigate, Route, Routes } from 'react-router-dom'
 import { ProtectedRoute } from './components/auth/ProtectedRoute'
@@ -7,7 +7,8 @@ import { useAuth } from './contexts/AuthContext'
 import { useI18n } from './contexts/I18nContext'
 import { useTheme } from './contexts/ThemeContext'
 import type { Lang } from './i18n/translations'
-import { AnalyzerPage } from './pages/AnalyzerPage'
+import { ApiDocsPage } from './pages/ApiDocsPage'
+import { ChatPage } from './pages/ChatPage'
 import { DashboardPage } from './pages/DashboardPage'
 import { DetailPage } from './pages/DetailPage'
 import { HistoryPage } from './pages/HistoryPage'
@@ -46,10 +47,13 @@ export function App() {
       <Routes>
         <Route path="/login" element={<LoginPage />} />
         <Route path="/register" element={<RegisterPage />} />
+        {/* Documentation API publique (accessible sans compte). */}
+        <Route path="/api-docs" element={<ApiDocsPage />} />
 
         <Route element={<ProtectedRoute />}>
           <Route element={<AppLayout />}>
-            <Route index element={<AnalyzerPage />} />
+            {/* Route unique du chat : « / », « /c » et « /c/:conversationId ». */}
+            <Route path="c?/:conversationId?" element={<ChatPage />} />
             <Route path="history" element={<HistoryPage />} />
             <Route path="analysis/:id" element={<DetailPage />} />
             <Route path="dashboard" element={<DashboardPage />} />

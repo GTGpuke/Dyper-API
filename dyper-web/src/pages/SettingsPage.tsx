@@ -1,7 +1,7 @@
 // Page Paramètres : navigation par sous-section + rendu de la section active.
 import { NavLink, useParams } from 'react-router-dom'
+import { PageContainer } from '../components/layout/PageContainer'
 import { PageHeader } from '../components/layout/PageHeader'
-import { AnalysisPrefsSection } from '../components/settings/AnalysisPrefsSection'
 import { AppearanceSection } from '../components/settings/AppearanceSection'
 import { PrivacySection } from '../components/settings/PrivacySection'
 import { ProfileSection } from '../components/settings/ProfileSection'
@@ -11,7 +11,6 @@ import { cn } from '../lib/cn'
 const TABS = [
   { id: 'profile', key: 'settings.tab.profile' },
   { id: 'appearance', key: 'settings.tab.appearance' },
-  { id: 'analysis', key: 'settings.tab.analysis' },
   { id: 'privacy', key: 'settings.tab.privacy' },
 ] as const
 
@@ -21,7 +20,7 @@ export function SettingsPage() {
   const active = section ?? 'profile'
 
   return (
-    <div>
+    <PageContainer>
       <PageHeader title={t('settings.title')} subtitle={t('settings.subtitle')} />
 
       {/* Navigation des sous-sections. */}
@@ -44,8 +43,7 @@ export function SettingsPage() {
 
       {active === 'profile' && <ProfileSection />}
       {active === 'appearance' && <AppearanceSection />}
-      {active === 'analysis' && <AnalysisPrefsSection />}
       {active === 'privacy' && <PrivacySection />}
-    </div>
+    </PageContainer>
   )
 }

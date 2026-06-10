@@ -42,6 +42,12 @@ export type AnalyzeType = 'image' | 'video' | 'prompt'
 
 // ─── Enregistrements persistés en base (lecture de l'historique) ─────────────
 
+/** Présence d'objets à un instant donné d'une vidéo (chronologie d'apparition). */
+export interface TimelineEntry {
+  t: number
+  labels: string[]
+}
+
 /** Une ligne de la table `analysis` (résumé persisté d'une analyse). */
 export interface AnalysisRecord {
   id: string
@@ -57,6 +63,11 @@ export interface AnalysisRecord {
   objects_count: number
   tags: string[]
   colors: string[]
+  thumbnail_path: string | null
+  timeline: TimelineEntry[] | null
+  objects: DetectedObject[] | null
+  source_width: number | null
+  source_height: number | null
   created_at: string
 }
 
@@ -159,3 +170,56 @@ export interface SessionInfo {
   userAgent: string | null
   ip: string
 }
+
+// ─── Conversations ───────────────────────────────────────────────────────────
+
+export interface Conversation {
+  id: string
+  title: string
+  createdAt: string
+  updatedAt: string
+}
+
+export type MessageRole = 'user' | 'assistant'
+export type MessageKind = 'text' | 'analysis'
+
+/** Analyse inlinée dans une carte de message assistant. */
+export interface InlineAnalysis {
+  id: string
+  requestId: string
+  type: AnalyzeType
+  description: string
+  model: string
+  lang: string
+  sceneLabel: string
+  sceneConfidence: number
+  indoor: boolean | null
+  objects: DetectedObject[]
+  colors: string[]
+  tags: string[]
+  timeline: TimelineEntry[] | null
+  sourceWidth: number | null
+  sourceHeight: number | null
+  thumbnailUrl: string | null
+}
+
+export interface ConversationMessage {
+  id: string
+  role: MessageRole
+  kind: MessageKind
+  content: string
+  attachmentName: string | null
+  seq: number
+  createdAt: string
+  analysis: InlineAnalysis | null
+}
+
+/** Message décoré côté client (état d'envoi optimiste ou flux interrompu). */
+export type ClientMessage = ConversationMessage & {
+  status?: 'sending' | 'error' | 'interrupted'
+}
+
+/** Pièce jointe en attente dans le composer ou le héros d'accueil. */
+export type PendingAttachment =
+  | { kind: 'file'; file: File; previewUrl: string | null; isVideo: boolean; durationS?: number }
+  | { kind: 'url'; url: string }

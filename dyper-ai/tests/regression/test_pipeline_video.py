@@ -42,13 +42,18 @@ def _run_extract(cap: MagicMock):
 class TestPipelineVideo:
     """Tests du pipeline extract_frames() avec des vidéos simulées."""
 
-    def test_extract_frames_retourne_liste_images(self):
-        """Vérifie que extract_frames retourne une liste d'images PIL."""
+    def test_extract_frames_retourne_images_et_timestamps(self):
+        """Vérifie que extract_frames retourne des couples (image PIL, horodatage croissant)."""
         # 50 frames à 10 fps → durée 5 s → ~5 images à la cadence 1/s.
         frames = _run_extract(_mock_cap(total_frames=50, fps=10))
         assert isinstance(frames, list)
-        assert all(isinstance(f, Image.Image) for f in frames)
+        assert all(isinstance(f, Image.Image) for f, _t in frames)
         assert len(frames) == 5
+        timestamps = [t for _f, t in frames]
+        assert timestamps == sorted(timestamps)
+        assert timestamps[0] == 0.0
+        # Dernière position ≈ frame 49 à 10 fps → 4.9 s.
+        assert timestamps[-1] == 4.9
 
     def test_extract_frames_vide_si_pas_de_frames(self):
         """Vérifie que extract_frames retourne une liste vide si la vidéo n'a pas de frames."""
@@ -83,6 +88,33 @@ class TestPipelineVideo:
 
         with pytest.raises(ValueError):
             extract_frames("!!!pas-du-base64!!!")
+
+    def test_route_video_retourne_timeline_et_miniature(self, client):
+        """Vérifie que la route /process construit la chronologie et la miniature vidéo."""
+        import numpy as np
+
+        fake_frames = [
+            (Image.fromarray(np.ones((40, 60, 3), dtype="uint8") * 100), 0.0),
+            (Image.fromarray(np.ones((40, 60, 3), dtype="uint8") * 150), 1.0),
+            (Image.fromarray(np.ones((40, 60, 3), dtype="uint8") * 200), 2.0),
+        ]
+        with patch("app.services.video.extract_frames", return_value=fake_frames):
+            res = client.post(
+                "/process",
+                json={
+                    "requestId": "vid-timeline",
+                    "type": "video",
+                    "videoBase64": base64.b64encode(b"x").decode(),
+                },
+            )
+        assert res.status_code == 200
+        data = res.json()
+        # Chronologie : une entrée par frame, horodatages préservés, labels du mock (person).
+        assert [e["t"] for e in data["timeline"]] == [0.0, 1.0, 2.0]
+        assert data["timeline"][0]["labels"] == ["person"]
+        # Miniature décodable + dimensions de la première frame analysée.
+        assert base64.b64decode(data["thumbnailBase64"])
+        assert (data["sourceWidth"], data["sourceHeight"]) == (60, 40)
 
     def test_route_refuse_video_trop_longue(self, client):
         """Vérifie que la route /process renvoie 422 quand la vidéo est trop longue."""

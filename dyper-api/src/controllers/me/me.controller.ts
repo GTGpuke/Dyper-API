@@ -1,7 +1,7 @@
 // Contrôleurs du compte courant (/api/me) : profil, mot de passe, préférences, sessions, données.
 // Toutes ces routes sont protégées par verifyAuth → request.authUser est garanti présent.
 import type { FastifyReply, FastifyRequest } from 'fastify';
-import { Analysis, ChatExchange, User } from '../../models';
+import { Analysis, ChatExchange, Conversation, Message, User } from '../../models';
 import {
   clearCookieOptions,
   cookieOptions,
@@ -13,6 +13,7 @@ import {
 } from '../../services/auth/auth.service';
 import sequelize from '../../services/db/database.service';
 import logger from '../../services/logger.service';
+import { deleteThumbnails } from '../../services/media/media.service';
 import type { UserSettings } from '../../types';
 import { UnauthorizedError } from '../../utils/errors';
 
@@ -103,9 +104,11 @@ export async function revokeAllSessions(
 // GET /api/me/export — exporte toutes les données de l'utilisateur (téléchargement JSON).
 export async function exportData(request: FastifyRequest, reply: FastifyReply): Promise<void> {
   const user = await currentUser(request);
-  const [analyses, chats] = await Promise.all([
+  const [analyses, chats, conversations, messages] = await Promise.all([
     Analysis.findAll({ where: { user_id: user.id }, order: [['created_at', 'DESC']] }),
     ChatExchange.findAll({ where: { user_id: user.id }, order: [['created_at', 'ASC']] }),
+    Conversation.findAll({ where: { user_id: user.id }, order: [['created_at', 'ASC']] }),
+    Message.findAll({ where: { user_id: user.id }, order: [['created_at', 'ASC']] }),
   ]);
 
   reply
@@ -117,6 +120,8 @@ export async function exportData(request: FastifyRequest, reply: FastifyReply): 
       settings: user.resolvedSettings(),
       analyses,
       chats,
+      conversations,
+      messages,
     });
 }
 
@@ -129,14 +134,24 @@ export async function purgeHistory(
   const analysisWhere: Record<string, unknown> = { user_id: user.id };
   if (request.body?.type) analysisWhere.type = request.body.type;
 
+  // Chemins des miniatures à supprimer du disque, collectés avant la transaction.
+  const thumbnails = (
+    await Analysis.findAll({ attributes: ['thumbnail_path'], where: analysisWhere })
+  ).map((a) => a.thumbnail_path);
+
   const deleted = await sequelize.transaction(async (tx) => {
     const count = await Analysis.destroy({ where: analysisWhere, transaction: tx });
-    // Sans filtre de type, on purge aussi tous les échanges de chat de l'utilisateur.
+    // Sans filtre de type, « tout effacer » inclut chats, conversations et messages.
     if (!request.body?.type) {
       await ChatExchange.destroy({ where: { user_id: user.id }, transaction: tx });
+      await Message.destroy({ where: { user_id: user.id }, transaction: tx });
+      await Conversation.destroy({ where: { user_id: user.id }, transaction: tx });
     }
     return count;
   });
+
+  // Suppression des fichiers hors transaction (le système de fichiers n'est pas transactionnel).
+  await deleteThumbnails(thumbnails);
 
   logger.info('Historique purgé.', { userId: user.id, deleted });
   reply.send({ success: true, deleted });
@@ -151,11 +166,20 @@ export async function deleteAccount(
   const ok = await verifyPassword(request.body.password, user.password_hash);
   if (!ok) throw new UnauthorizedError('Mot de passe incorrect.');
 
+  // Chemins des miniatures à supprimer du disque, collectés avant la transaction.
+  const thumbnails = (
+    await Analysis.findAll({ attributes: ['thumbnail_path'], where: { user_id: user.id } })
+  ).map((a) => a.thumbnail_path);
+
   await sequelize.transaction(async (tx) => {
     await Analysis.destroy({ where: { user_id: user.id }, transaction: tx });
     await ChatExchange.destroy({ where: { user_id: user.id }, transaction: tx });
+    await Message.destroy({ where: { user_id: user.id }, transaction: tx });
+    await Conversation.destroy({ where: { user_id: user.id }, transaction: tx });
     await user.destroy({ transaction: tx });
   });
+
+  await deleteThumbnails(thumbnails);
 
   logger.info('Compte supprimé.', { userId: user.id });
   reply.clearCookie(TOKEN_COOKIE, clearCookieOptions());

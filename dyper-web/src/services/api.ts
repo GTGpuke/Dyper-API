@@ -6,6 +6,8 @@ import type {
   AnalysisResult,
   ApiResponse,
   ChatExchangeRecord,
+  Conversation,
+  ConversationMessage,
   HealthStatus,
   Paginated,
   SessionInfo,
@@ -179,4 +181,80 @@ export async function purgeHistory(type?: string): Promise<number> {
 
 export async function deleteAccount(password: string): Promise<void> {
   await client.delete('/api/me/account', { data: { password } })
+}
+
+// ─── Conversations ───────────────────────────────────────────────────────────
+
+export async function listConversations(): Promise<Conversation[]> {
+  const { data } = await client.get<{ data: Conversation[] }>('/api/conversations', {
+    params: { limit: 200 },
+  })
+  return data.data
+}
+
+export async function createConversation(): Promise<Conversation> {
+  const { data } = await client.post<{ conversation: Conversation }>('/api/conversations', {})
+  return data.conversation
+}
+
+export async function getConversation(
+  id: string
+): Promise<{ conversation: Conversation; messages: ConversationMessage[] }> {
+  const { data } = await client.get<{ conversation: Conversation; messages: ConversationMessage[] }>(
+    `/api/conversations/${id}`
+  )
+  return data
+}
+
+export async function renameConversation(id: string, title: string): Promise<Conversation> {
+  const { data } = await client.patch<{ conversation: Conversation }>(`/api/conversations/${id}`, {
+    title,
+  })
+  return data.conversation
+}
+
+export async function deleteConversation(id: string): Promise<void> {
+  await client.delete(`/api/conversations/${id}`)
+}
+
+/** Envoie un message (texte, fichier ou URL) et retourne la paire user/assistant créée. */
+export async function sendConversationMessage(
+  id: string,
+  input: { text?: string; file?: File; url?: string; lang?: string },
+  onUploadProgress?: (pct: number) => void
+): Promise<{ conversation: Conversation; messages: ConversationMessage[] }> {
+  if (input.file) {
+    const form = new FormData()
+    form.append('file', input.file)
+    if (input.text) form.append('text', input.text)
+    form.append('lang', input.lang ?? 'fr')
+    // L'analyse vidéo est plus longue (nombreuses images) : timeout étendu côté client.
+    const timeout = input.file.type.startsWith('video/') ? 180_000 : undefined
+    const { data } = await client.post<{
+      conversation: Conversation
+      messages: ConversationMessage[]
+    }>(`/api/conversations/${id}/messages`, form, {
+      timeout,
+      onUploadProgress: (event) => {
+        if (onUploadProgress && event.total) {
+          onUploadProgress(Math.round((event.loaded / event.total) * 100))
+        }
+      },
+    })
+    return data
+  }
+  const { data } = await client.post<{
+    conversation: Conversation
+    messages: ConversationMessage[]
+  }>(`/api/conversations/${id}/messages`, {
+    text: input.text,
+    url: input.url,
+    lang: input.lang ?? 'fr',
+  })
+  return data
+}
+
+/** URL d'une miniature d'analyse (servie par cookie — utilisable dans un <img src>). */
+export function mediaUrl(requestId: string): string {
+  return `${import.meta.env.VITE_API_URL ?? ''}/api/media/${requestId}`
 }

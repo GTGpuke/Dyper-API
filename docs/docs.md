@@ -272,6 +272,32 @@ Body:
 }
 ```
 
+La réponse `/process` inclut également des champs optionnels (rétrocompatibles) :
+`thumbnailBase64` (miniature JPEG de l'image analysée), `timeline` (chronologie d'apparition des
+objets pour les vidéos : `[{ t, labels }]`) et `sourceWidth`/`sourceHeight` (référentiel des
+bounding boxes).
+
+### 3.3 Conversations, streaming SSE et médias
+
+L'expérience conversationnelle (façon claude.ai) repose sur trois mécanismes :
+
+- **Conversations persistantes** (`/api/conversations`) : tables `conversation` et `message`
+  (cloisonnées par `user_id`). L'envoi d'un message (`POST /:id/messages`) suit trois branches :
+  fichier/URL → analyse (carte) ; texte seul sans analyse antérieure → analyse de prompt ; texte
+  seul avec analyse antérieure → question de suivi (Groq), avec contexte **reconstruit côté
+  serveur** depuis la ligne `analysis` (colonnes `objects`, `timeline`).
+- **Streaming SSE** (`POST /:id/messages/stream`) : `reply.hijack()` Fastify puis frames
+  `data: {"delta": …}` token par token et frame terminal `event: done`. Les erreurs métier
+  (404/400/503) sont renvoyées en JSON **avant** l'ouverture du flux. Aucune compression ne doit
+  être appliquée sur ce scope.
+- **Médias** (`GET /api/media/:requestId`) : miniatures JPEG stockées dans `MEDIA_DIR` et servies
+  avec authentification **par cookie uniquement** (pas de X-App-Key — une balise `<img>` ne peut
+  pas envoyer de header custom). Cloisonnement par utilisateur et 404 uniforme. Les fichiers sont
+  supprimés à la purge de l'historique et à la suppression du compte.
+
+Les migrations de schéma sont **additives** : `ensureColumn()` (PRAGMA + `ALTER TABLE ADD COLUMN`)
+et `Model.sync()` (CREATE TABLE IF NOT EXISTS) tournent à chaque démarrage, y compris en production.
+
 ---
 
 ## 4. dyper-api — Backend Express

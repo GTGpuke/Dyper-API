@@ -11,11 +11,11 @@ from PIL import Image
 
 from app.config import settings
 from app.schemas.request import ProcessRequest
-from app.schemas.response import ProcessResponse, Visualization
+from app.schemas.response import ProcessResponse, TimelineEntry, Visualization
 from app.services import description as desc_service
 from app.services.detector import detect
 from app.utils.auth import verify_internal_key
-from app.utils.image import decode_base64, resize_for_model
+from app.utils.image import decode_base64, resize_for_model, to_thumbnail_base64
 from app.utils.logger import get_logger
 
 router = APIRouter()
@@ -47,11 +47,15 @@ async def _load_image_from_url(url: str) -> Image.Image:
         ) from exc
 
 
-def _aggregate_video_responses(responses: list[ProcessResponse], lang: str) -> ProcessResponse:
+def _aggregate_video_responses(
+    responses: list[ProcessResponse],
+    lang: str,
+    timeline: list[TimelineEntry] | None = None,
+) -> ProcessResponse:
     """Agrège les réponses de plusieurs frames vidéo en une seule.
 
     Fusionne les objets uniques (meilleure confiance), choisit la scène la plus fréquente,
-    agrège les tags, et régénère la description dans la langue demandée.
+    agrège les tags, et régénère le compte rendu dans la langue demandée (chronologie incluse).
     """
     if not responses:
         raise ValueError("Aucune réponse à agréger.")
@@ -75,7 +79,9 @@ def _aggregate_video_responses(responses: list[ProcessResponse], lang: str) -> P
 
     colors = responses[0].visualization.colors
     all_tags = sorted({tag for resp in responses for tag in resp.visualization.tags})
-    description_text = desc_service.generate(merged_objects, best_scene, None, lang)
+    description_text = desc_service.generate(
+        merged_objects, best_scene, None, lang, colors=colors, timeline=timeline
+    )
 
     visualization = Visualization(
         objects=merged_objects,
@@ -118,6 +124,9 @@ async def process(
 
             image = resize_for_model(image, settings.IMAGE_MAX_DIM)
             result = detect(image, runner, body.prompt, body.lang, body.requestId)
+            # Miniature + dimensions du référentiel des boîtes (image effectivement analysée).
+            result.thumbnailBase64 = to_thumbnail_base64(image)
+            result.sourceWidth, result.sourceHeight = image.size
 
         elif body.type == "video":
             if not body.videoBase64:
@@ -140,17 +149,26 @@ async def process(
                     status_code=422, detail="Impossible d'extraire des frames de la vidéo."
                 )
 
-            frame_responses = [
-                detect(
-                    resize_for_model(frame, settings.IMAGE_MAX_DIM),
-                    runner,
-                    body.prompt,
-                    body.lang,
-                    body.requestId,
+            frame_responses: list[ProcessResponse] = []
+            timeline: list[TimelineEntry] = []
+            first_resized: Image.Image | None = None
+            for frame, timestamp in frames:
+                resized = resize_for_model(frame, settings.IMAGE_MAX_DIM)
+                if first_resized is None:
+                    first_resized = resized
+                frame_result = detect(resized, runner, body.prompt, body.lang, body.requestId)
+                frame_responses.append(frame_result)
+                # Chronologie : labels détectés sur cette frame, à son horodatage.
+                timeline.append(
+                    TimelineEntry(t=timestamp, labels=sorted(frame_result.visualization.tags))
                 )
-                for frame in frames
-            ]
-            result = _aggregate_video_responses(frame_responses, body.lang)
+
+            result = _aggregate_video_responses(frame_responses, body.lang, timeline)
+            result.timeline = timeline
+            # Miniature et référentiel des boîtes : première frame analysée.
+            if first_resized is not None:
+                result.thumbnailBase64 = to_thumbnail_base64(first_resized)
+                result.sourceWidth, result.sourceHeight = first_resized.size
 
         else:  # type == "prompt"
             blank_image = Image.new("RGB", (100, 100), "white")

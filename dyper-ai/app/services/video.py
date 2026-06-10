@@ -19,12 +19,14 @@ class VideoTooLongError(Exception):
     """Levée lorsqu'une vidéo dépasse la durée maximale autorisée."""
 
 
-def extract_frames(video_base64: str) -> list[Image.Image]:
-    """Extrait des images réparties uniformément sur TOUTE la durée d'une vidéo base64.
+def extract_frames(video_base64: str) -> list[tuple[Image.Image, float]]:
+    """Extrait des images (et leurs horodatages) réparties sur TOUTE la durée d'une vidéo base64.
 
     Le nombre d'images suit la cadence cible (`VIDEO_SAMPLE_FPS`), plafonné par
     `VIDEO_MAX_FRAMES`. Décode la vidéo dans un fichier temporaire, capture des frames à des
-    positions distinctes réparties sur toute la durée, puis supprime le fichier.
+    positions distinctes réparties sur toute la durée, puis supprime le fichier. Chaque élément
+    retourné est un couple `(image, timestamp_secondes)` — l'horodatage alimente la chronologie
+    d'apparition des objets.
 
     Lève `ValueError` si la chaîne base64 est invalide (l'appelant peut répondre 422).
     Lève `VideoTooLongError` si la durée dépasse `VIDEO_MAX_DURATION_S`.
@@ -35,7 +37,7 @@ def extract_frames(video_base64: str) -> list[Image.Image]:
         raise ValueError("Vidéo base64 invalide.") from exc
 
     tmp_fd, tmp_path = tempfile.mkstemp(suffix=".mp4")
-    frames: list[Image.Image] = []
+    frames: list[tuple[Image.Image, float]] = []
     cap: cv2.VideoCapture | None = None
     try:
         with os.fdopen(tmp_fd, "wb") as tmp_file:
@@ -71,7 +73,7 @@ def extract_frames(video_base64: str) -> list[Image.Image]:
             ret, frame = cap.read()
             if ret:
                 frame_rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
-                frames.append(Image.fromarray(frame_rgb))
+                frames.append((Image.fromarray(frame_rgb), round(pos / fps, 2)))
     finally:
         if cap is not None:
             cap.release()

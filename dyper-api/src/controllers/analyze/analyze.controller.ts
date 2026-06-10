@@ -2,11 +2,11 @@
 // Préserve le contrat de réponse Dyper : { success, requestId, processingTime, result }.
 import type { FastifyReply, FastifyRequest } from 'fastify';
 import { v4 as uuidv4 } from 'uuid';
-import { Analysis } from '../../models';
 import aiService from '../../services/ai/ai.service';
+import { persistAnalysis } from '../../services/analysis/persist.service';
 import { env } from '../../services/env.service';
 import logger from '../../services/logger.service';
-import type { AnalysisResult, AnalyzeType, ProcessAiResponse } from '../../types';
+import type { AnalysisResult, ProcessAiResponse } from '../../types';
 import { FileTooLargeError, InvalidFileTypeError, ValidationError } from '../../utils/errors';
 
 interface AnalyzeBody {
@@ -18,38 +18,8 @@ interface AnalyzeUrlBody extends AnalyzeBody {
   url: string;
 }
 
-// Enregistre l'analyse en base sans bloquer la réponse (une erreur DB est journalisée, pas propagée).
-async function persistAnalysis(
-  result: ProcessAiResponse,
-  type: AnalyzeType,
-  lang: string,
-  userId: string | null
-): Promise<void> {
-  try {
-    await Analysis.create({
-      request_id: result.requestId,
-      user_id: userId,
-      type,
-      lang,
-      model: result.model,
-      processing_time_ms: result.processingTimeMs,
-      description: result.description,
-      scene_label: result.visualization.scene.label,
-      scene_confidence: result.visualization.scene.confidence,
-      indoor: result.visualization.scene.indoor ?? null,
-      objects_count: result.visualization.objects.length,
-      tags: result.visualization.tags,
-      colors: result.visualization.colors,
-    });
-  } catch (e) {
-    logger.error("Échec de la persistance de l'analyse.", {
-      error: e,
-      requestId: result.requestId,
-    });
-  }
-}
-
 // Construit l'enveloppe de réponse standard Dyper.
+// La miniature base64 est volontairement exclue (elle est servie par /api/media, pas inlinée).
 function sendResult(
   reply: FastifyReply,
   requestId: string,
@@ -57,7 +27,8 @@ function sendResult(
   aiResponse: ProcessAiResponse,
   lang: string
 ): void {
-  const result: AnalysisResult = { ...aiResponse, lang };
+  const { thumbnailBase64: _thumbnail, ...rest } = aiResponse;
+  const result: AnalysisResult = { ...rest, lang };
   reply.status(200).send({ success: true, requestId, processingTime, result });
 }
 

@@ -1,5 +1,6 @@
 // Page Tableau de bord : statistiques agrégées calculées depuis l'historique en base.
 import { useMemo } from 'react'
+import { PageContainer } from '../components/layout/PageContainer'
 import { PageHeader } from '../components/layout/PageHeader'
 import { StatCard } from '../components/dashboard/StatCard'
 import { BarChart, type BarDatum } from '../components/dashboard/BarChart'
@@ -49,7 +50,7 @@ export function DashboardPage() {
   }, [data])
 
   return (
-    <div>
+    <PageContainer>
       <PageHeader title={t('dash.title')} subtitle={t('dash.subtitle')} />
 
       {error && <ErrorBanner error={error} />}
@@ -97,6 +98,6 @@ export function DashboardPage() {
           )}
         </div>
       )}
-    </div>
+    </PageContainer>
   )
 }

@@ -9,8 +9,8 @@ Plateforme de reconnaissance visuelle basée sur YOLO. Accepte une image, une vi
 | Module | Technologie | Rôle | Port |
 |---|---|---|---|
 | `dyper-ai` | **Python / FastAPI / Ultralytics YOLO** | Inférence visuelle locale | 8000 |
-| `dyper-api` | **Fastify / TypeScript** (passerelle pro) | API publique + comptes + historique (SQLite) | 3000 |
-| `dyper-web` | **React / TypeScript / Vite / Tailwind** | SPA : auth, analyse, historique, détail, dashboard, paramètres (mode sombre) | 5173 |
+| `dyper-api` | **Fastify / TypeScript** (passerelle pro) | API publique + comptes + conversations + historique (SQLite) + médias | 3000 |
+| `dyper-web` | **React / TypeScript / Vite / Tailwind** | SPA conversationnelle (chat façon claude.ai, streaming SSE), historique, dashboard, paramètres, docs API publiques (`/api-docs`), i18n FR/EN, mode sombre | 5173 |
 
 **Stack qualité de la passerelle `dyper-api`** : Fastify 5, TypeScript strict, Sequelize (SQLite), Winston, Swagger (`/docs`), Biome (lint/format), Jest, PM2, Docker, CI GitHub Actions. Authentification frontend → passerelle par header **`X-App-Key`** ; passerelle → `dyper-ai` par header **`X-Internal-Key`**. **Comptes utilisateurs** : JWT en cookie httpOnly (bcrypt), données cloisonnées par utilisateur.
 
@@ -106,7 +106,8 @@ Interface sur http://localhost:5173.
 | `JWT_SECRET` | *(requis)* | Secret de signature des JWT d'authentification (`openssl rand -hex 32`) |
 | `AI_SERVICE_URL` | *(requis)* | URL de dyper-ai |
 | `AI_INTERNAL_KEY` | *(requis)* | Identique à celle de dyper-ai |
-| `DB_STORAGE` | `./data/dyper.sqlite` | Fichier SQLite (comptes + historique) |
+| `DB_STORAGE` | `./data/dyper.sqlite` | Fichier SQLite (comptes + conversations + historique) |
+| `MEDIA_DIR` | `./data/uploads` | Dossier des miniatures d'analyses (servies par `/api/media`) |
 | `GROQ_API_KEY` | — | Clé Groq (requise pour `/api/chat`) |
 | `MAX_FILE_SIZE_MB` | `10` | Taille max upload |
 
@@ -132,10 +133,18 @@ Toutes les routes `/api/*` exigent le header `X-App-Key`. `/health` et `/docs` s
 | `POST` | `/api/analyze/url` | Analyse d'une image par URL |
 | `POST` | `/api/analyze/prompt` | Analyse d'un prompt texte seul |
 | `POST` | `/api/chat` | Question de suivi (LLM Groq) |
+| `GET/POST` | `/api/conversations` | Liste / création de conversations |
+| `GET/PATCH/DELETE` | `/api/conversations/:id` | Fil de messages / renommage / suppression |
+| `POST` | `/api/conversations/:id/messages` | Envoi d'un message (texte, fichier ou URL) |
+| `POST` | `/api/conversations/:id/messages/stream` | Question de suivi **streamée (SSE)** |
+| `GET` | `/api/media/:requestId` | Miniature JPEG d'une analyse (**cookie seul**, sans X-App-Key — utilisable en `<img>`) |
 | `GET` | `/api/analyses` | Historique paginé des analyses |
 | `GET` | `/api/analyses/:id` | Détail d'une analyse |
 | `GET` | `/api/analyses/:requestId/chat` | Échanges de chat d'une analyse |
 | `GET` | `/health` | Statut passerelle + base + dyper-ai |
+
+> Documentation interactive complète (exemples curl / JavaScript / Python) : page **`/api-docs`** du
+> frontend (publique), et Swagger de la passerelle en dev (`/docs`).
 
 ---
 

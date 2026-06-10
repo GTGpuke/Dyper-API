@@ -32,6 +32,12 @@ export interface Visualization {
   tags: string[];
 }
 
+/** Présence d'objets à un instant donné d'une vidéo (chronologie d'apparition). */
+export interface TimelineEntry {
+  t: number;
+  labels: string[];
+}
+
 /** Réponse brute du service d'inférence dyper-ai (POST /process). */
 export interface ProcessAiResponse {
   requestId: string;
@@ -39,6 +45,11 @@ export interface ProcessAiResponse {
   visualization: Visualization;
   model: string;
   processingTimeMs: number;
+  // Champs optionnels (contrat rétrocompatible) pour l'expérience conversationnelle.
+  thumbnailBase64?: string | null;
+  timeline?: TimelineEntry[] | null;
+  sourceWidth?: number | null;
+  sourceHeight?: number | null;
 }
 
 /** Résultat exposé au client (réponse dyper-ai enrichie de la langue). */
@@ -65,6 +76,8 @@ export interface ChatContext {
   lang?: string;
   processingTime?: number;
   requestId?: string;
+  /** Chronologie d'apparition des objets (vidéos) — enrichit le prompt système. */
+  timeline?: TimelineEntry[] | null;
 }
 
 // ─── Préférences utilisateur (colonne JSON `settings` du modèle User) ──────────
@@ -97,4 +110,44 @@ export const DEFAULT_USER_SETTINGS: UserSettings = {
 export interface AuthUser {
   id: string;
   email: string;
+}
+
+// ─── Conversations ─────────────────────────────────────────────────────────────
+
+/** Rôle d'un message de conversation. */
+export type MessageRole = 'user' | 'assistant';
+
+/** Nature d'un message : texte libre ou carte d'analyse. */
+export type MessageKind = 'text' | 'analysis';
+
+/** Analyse inlinée dans un message assistant (vue construite pour le client). */
+export interface InlineAnalysis {
+  id: string;
+  requestId: string;
+  type: AnalyzeType;
+  description: string;
+  model: string;
+  lang: string;
+  sceneLabel: string;
+  sceneConfidence: number;
+  indoor: boolean | null;
+  objects: DetectedObject[];
+  colors: string[];
+  tags: string[];
+  timeline: TimelineEntry[] | null;
+  sourceWidth: number | null;
+  sourceHeight: number | null;
+  thumbnailUrl: string | null;
+}
+
+/** Vue d'un message renvoyée au client (analyse inlinée si carte). */
+export interface MessageView {
+  id: string;
+  role: MessageRole;
+  kind: MessageKind;
+  content: string;
+  attachmentName: string | null;
+  seq: number;
+  createdAt: Date;
+  analysis: InlineAnalysis | null;
 }

@@ -44,3 +44,35 @@ export function formatRelative(iso: string, lang = 'fr'): string {
 export function formatNumber(n: number, lang = 'fr'): string {
   return n.toLocaleString(locale(lang))
 }
+
+// Formate une taille en octets en chaîne lisible (Ko / Mo).
+export function formatBytes(bytes: number): string {
+  if (bytes < 1024 * 1024) return `${Math.max(1, Math.round(bytes / 1024))} Ko`
+  return `${(bytes / (1024 * 1024)).toFixed(1)} Mo`
+}
+
+// Formate une durée en secondes au format m:ss (ex. 75 → « 1:15 »).
+export function formatTimecode(seconds: number): string {
+  const total = Math.max(0, Math.round(seconds))
+  const m = Math.floor(total / 60)
+  const s = total % 60
+  return `${m}:${String(s).padStart(2, '0')}`
+}
+
+/** Groupes de récence pour la liste des conversations. */
+export type RecencyGroup = 'today' | 'yesterday' | 'week' | 'older'
+
+// Classe une date ISO dans un groupe de récence (aujourd'hui / hier / 7 jours / plus ancien).
+export function recencyGroup(iso: string): RecencyGroup {
+  const date = new Date(iso)
+  const startOfToday = new Date()
+  startOfToday.setHours(0, 0, 0, 0)
+  if (date >= startOfToday) return 'today'
+  const startOfYesterday = new Date(startOfToday)
+  startOfYesterday.setDate(startOfYesterday.getDate() - 1)
+  if (date >= startOfYesterday) return 'yesterday'
+  const weekAgo = new Date(startOfToday)
+  weekAgo.setDate(weekAgo.getDate() - 7)
+  if (date >= weekAgo) return 'week'
+  return 'older'
+}

@@ -1,5 +1,6 @@
 // Page Historique : galerie paginée des analyses persistées en base SQLite.
 import { useState } from 'react'
+import { PageContainer } from '../components/layout/PageContainer'
 import { PageHeader } from '../components/layout/PageHeader'
 import { HistoryFilters } from '../components/history/HistoryFilters'
 import { AnalysisCard } from '../components/history/AnalysisCard'
@@ -28,7 +29,7 @@ export function HistoryPage() {
   const totalPages = data ? Math.max(1, Math.ceil(data.total / LIMIT)) : 1
 
   return (
-    <div>
+    <PageContainer>
       <PageHeader
         title={t('history.title')}
         subtitle={
@@ -96,6 +97,6 @@ export function HistoryPage() {
           )}
         </>
       )}
-    </div>
+    </PageContainer>
   )
 }

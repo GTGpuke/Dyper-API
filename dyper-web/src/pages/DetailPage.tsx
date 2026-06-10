@@ -1,10 +1,13 @@
 // Page Détail : enregistrement complet d'une analyse + historique de chat persisté.
 import type { ReactNode } from 'react'
 import { Link, useParams } from 'react-router-dom'
+import { PageContainer } from '../components/layout/PageContainer'
 import { PageHeader } from '../components/layout/PageHeader'
 import { SceneBadge } from '../components/result/SceneBadge'
 import { ColorPalette } from '../components/result/ColorPalette'
 import { TagCloud } from '../components/result/TagCloud'
+import { VideoTimeline } from '../components/result/VideoTimeline'
+import { mediaUrl } from '../services/api'
 import { Badge } from '../components/ui/Badge'
 import { Skeleton } from '../components/ui/Skeleton'
 import { ErrorBanner } from '../components/ui/ErrorBanner'
@@ -27,7 +30,7 @@ export function DetailPage() {
   const { analysis, chat, loading, error } = useAnalysis(id)
 
   return (
-    <div>
+    <PageContainer>
       <Link to="/history" className="mb-4 inline-flex items-center gap-1.5 text-sm text-ink-500 hover:text-ink-700 dark:text-ink-400 dark:hover:text-ink-200">
         ← {t('detail.back')}
       </Link>
@@ -53,9 +56,26 @@ export function DetailPage() {
             {/* Colonne principale. */}
             <div className="flex flex-col gap-6 lg:col-span-2">
               <div className="surface flex flex-col gap-6 p-6">
+                {analysis.thumbnail_path && (
+                  <img
+                    src={mediaUrl(analysis.request_id)}
+                    alt={t('history.thumbnailAlt')}
+                    className="max-h-80 w-full rounded-xl border border-ink-200 object-contain dark:border-ink-800"
+                    onError={(e) => {
+                      e.currentTarget.style.display = 'none'
+                    }}
+                  />
+                )}
+
                 <Section title={t('result.description')}>
                   <p className="text-[15px] leading-relaxed text-ink-700 dark:text-ink-200">{analysis.description}</p>
                 </Section>
+
+                {analysis.timeline && analysis.timeline.length > 0 && (
+                  <Section title={t('timeline.title')}>
+                    <VideoTimeline timeline={analysis.timeline} />
+                  </Section>
+                )}
 
                 <Section title={t('result.scene')}>
                   <SceneBadge
@@ -121,7 +141,7 @@ export function DetailPage() {
           </div>
         </>
       )}
-    </div>
+    </PageContainer>
   )
 }
 

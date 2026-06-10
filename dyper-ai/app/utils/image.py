@@ -42,6 +42,18 @@ def resize_for_model(img: Image.Image, max_size: int = 1280) -> Image.Image:
     return img.resize((max(1, int(w * ratio)), max(1, int(h * ratio))), Image.Resampling.LANCZOS)
 
 
+def to_thumbnail_base64(img: Image.Image, max_dim: int = 480, quality: int = 80) -> str:
+    """Encode une miniature JPEG (base64) de l'image, réduite à max_dim au plus.
+
+    Conserve le ratio d'origine ; la compression JPEG qualité 80 garde la miniature légère
+    (quelques dizaines de Ko) pour le stockage et l'affichage dans le fil de conversation.
+    """
+    thumb = resize_for_model(img, max_dim)
+    buffer = BytesIO()
+    thumb.convert("RGB").save(buffer, format="JPEG", quality=quality)
+    return base64.b64encode(buffer.getvalue()).decode("ascii")
+
+
 def get_dominant_colors(img: Image.Image, n: int = 3) -> list[str]:
     """Retourne jusqu'à n couleurs dominantes (#RRGGBB), triées par fréquence décroissante.
 

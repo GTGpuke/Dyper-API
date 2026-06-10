@@ -37,6 +37,34 @@ async function dropOrphanBackupTables(): Promise<void> {
   }
 }
 
+// Ajoute une colonne si elle est absente (SQLite ne supporte que ADD COLUMN ; idempotent par
+// PRAGMA). No-op si la table n'existe pas encore : sync() la créera avec le schéma complet.
+// Contrairement à sync({ alter: true }), un simple ADD COLUMN ne déclenche pas le cycle de
+// reconstruction « _backup » de SQLite — sûr sous un watcher de développement.
+export async function ensureColumn(table: string, column: string, ddl: string): Promise<void> {
+  const [rows] = await sequelize.query(`PRAGMA table_info(\`${table}\`)`);
+  const cols = rows as Array<{ name: string }>;
+  if (cols.length === 0) return;
+  if (cols.some((c) => c.name === column)) return;
+  await sequelize.query(`ALTER TABLE \`${table}\` ADD COLUMN \`${column}\` ${ddl}`);
+  logger.info(`Colonne ajoutée à la base : ${table}.${column}.`);
+}
+
+// Mises à niveau additives du schéma, exécutées à chaque démarrage (y compris en production) :
+// uniquement des ADD COLUMN nullables et des CREATE TABLE IF NOT EXISTS — jamais destructif.
+async function ensureSchemaUpgrades(): Promise<void> {
+  await ensureColumn('analysis', 'thumbnail_path', 'VARCHAR(255) DEFAULT NULL');
+  await ensureColumn('analysis', 'timeline', 'JSON DEFAULT NULL');
+  await ensureColumn('analysis', 'objects', 'JSON DEFAULT NULL');
+  await ensureColumn('analysis', 'source_width', 'INTEGER DEFAULT NULL');
+  await ensureColumn('analysis', 'source_height', 'INTEGER DEFAULT NULL');
+
+  // Tables des conversations : créées même en production (sync sans alter = CREATE IF NOT EXISTS).
+  const { Conversation, Message } = await import('../../models');
+  await Conversation.sync();
+  await Message.sync();
+}
+
 // Vérifie que la connexion à la base de données est opérationnelle.
 // En dehors de la production, crée les tables manquantes (sync sans alter : idempotent et sans
 // réécriture — évite le coûteux cycle de reconstruction SQLite qui, sous un watcher de dev,
@@ -48,8 +76,9 @@ export async function connectDatabase(): Promise<void> {
   if (!env.isProd) {
     await dropOrphanBackupTables();
     await sequelize.sync();
-    logger.info('Modèles synchronisés avec la base de données.');
   }
+  await ensureSchemaUpgrades();
+  logger.info('Modèles synchronisés avec la base de données.');
 }
 
 export default sequelize;

@@ -12,11 +12,17 @@ interface Props {
   objects: DetectedObject[]
   highlightIndex?: number | null
   onHover?: (index: number | null) => void
+  /**
+   * Dimensions de l'image d'origine (référentiel des boîtes). Indispensable quand `src` est
+   * une miniature réduite : sans elles, les pourcentages seraient calculés sur la miniature.
+   */
+  sourceDims?: { w: number; h: number }
 }
 
-export function BoundingBoxOverlay({ src, objects, highlightIndex, onHover }: Props) {
+export function BoundingBoxOverlay({ src, objects, highlightIndex, onHover, sourceDims }: Props) {
   const { t } = useI18n()
-  const [dims, setDims] = useState<{ w: number; h: number } | null>(null)
+  const [naturalDims, setNaturalDims] = useState<{ w: number; h: number } | null>(null)
+  const dims = sourceDims ?? naturalDims
   const boxed = objects.filter((o) => o.boundingBox)
 
   return (
@@ -25,7 +31,9 @@ export function BoundingBoxOverlay({ src, objects, highlightIndex, onHover }: Pr
         src={src}
         alt=""
         className="block max-h-[480px] w-full object-contain"
-        onLoad={(e) => setDims({ w: e.currentTarget.naturalWidth, h: e.currentTarget.naturalHeight })}
+        onLoad={(e) =>
+          setNaturalDims({ w: e.currentTarget.naturalWidth, h: e.currentTarget.naturalHeight })
+        }
       />
       {dims &&
         boxed.map((obj, i) => {

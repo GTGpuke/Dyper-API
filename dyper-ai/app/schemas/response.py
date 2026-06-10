@@ -42,6 +42,13 @@ class Visualization(BaseModel):
     tags: list[str] = Field(..., description="Labels uniques des objets détectés.")
 
 
+class TimelineEntry(BaseModel):
+    """Présence d'objets à un instant donné d'une vidéo (chronologie d'apparition)."""
+
+    t: float = Field(..., ge=0.0, description="Horodatage de la frame analysée (secondes).")
+    labels: list[str] = Field(..., description="Labels des objets détectés à cet instant.")
+
+
 class ProcessResponse(BaseModel):
     """Réponse complète du pipeline de traitement dyper-ai."""
 
@@ -50,3 +57,16 @@ class ProcessResponse(BaseModel):
     visualization: Visualization
     model: str = Field(..., description="Variante de modèle utilisée, ex. « yolo26l ».")
     processingTimeMs: int = Field(..., description="Durée de traitement en millisecondes.")
+    # Champs optionnels (contrat rétrocompatible) ajoutés pour l'expérience conversationnelle.
+    thumbnailBase64: str | None = Field(
+        default=None, description="Miniature JPEG (base64) de l'image analysée."
+    )
+    timeline: list[TimelineEntry] | None = Field(
+        default=None, description="Chronologie d'apparition des objets (vidéos uniquement)."
+    )
+    sourceWidth: int | None = Field(
+        default=None, description="Largeur (px) de l'image analysée — référentiel des boîtes."
+    )
+    sourceHeight: int | None = Field(
+        default=None, description="Hauteur (px) de l'image analysée — référentiel des boîtes."
+    )

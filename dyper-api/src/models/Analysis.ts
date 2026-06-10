@@ -1,6 +1,6 @@
 import { DataTypes, Model, type Optional } from 'sequelize';
 import sequelize from '../services/db/database.service';
-import type { AnalyzeType } from '../types';
+import type { AnalyzeType, DetectedObject, TimelineEntry } from '../types';
 
 // Historique d'une analyse traitée par la passerelle (une ligne par requête /api/analyze*).
 interface AnalysisAttributes {
@@ -18,12 +18,25 @@ interface AnalysisAttributes {
   objects_count: number;
   tags: string[];
   colors: string[];
+  thumbnail_path: string | null;
+  timeline: TimelineEntry[] | null;
+  objects: DetectedObject[] | null;
+  source_width: number | null;
+  source_height: number | null;
   created_at: Date;
 }
 
 type AnalysisCreationAttributes = Optional<
   AnalysisAttributes,
-  'id' | 'user_id' | 'indoor' | 'created_at'
+  | 'id'
+  | 'user_id'
+  | 'indoor'
+  | 'thumbnail_path'
+  | 'timeline'
+  | 'objects'
+  | 'source_width'
+  | 'source_height'
+  | 'created_at'
 >;
 
 class Analysis
@@ -44,6 +57,11 @@ class Analysis
   declare objects_count: number;
   declare tags: string[];
   declare colors: string[];
+  declare thumbnail_path: string | null;
+  declare timeline: TimelineEntry[] | null;
+  declare objects: DetectedObject[] | null;
+  declare source_width: number | null;
+  declare source_height: number | null;
   declare created_at: Date;
 }
 
@@ -63,6 +81,11 @@ Analysis.init(
     objects_count: { type: DataTypes.INTEGER, allowNull: false, defaultValue: 0 },
     tags: { type: DataTypes.JSON, allowNull: false, defaultValue: [] },
     colors: { type: DataTypes.JSON, allowNull: false, defaultValue: [] },
+    thumbnail_path: { type: DataTypes.STRING, allowNull: true, defaultValue: null },
+    timeline: { type: DataTypes.JSON, allowNull: true, defaultValue: null },
+    objects: { type: DataTypes.JSON, allowNull: true, defaultValue: null },
+    source_width: { type: DataTypes.INTEGER, allowNull: true, defaultValue: null },
+    source_height: { type: DataTypes.INTEGER, allowNull: true, defaultValue: null },
     created_at: { type: DataTypes.DATE, allowNull: false, defaultValue: DataTypes.NOW },
   },
   {

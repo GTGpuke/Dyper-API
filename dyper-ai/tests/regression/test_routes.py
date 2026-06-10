@@ -106,6 +106,31 @@ class TestRouteProcess:
             assert field in viz
         assert viz["objects"][0]["label"] == "person"
 
+    def test_process_image_retourne_miniature_et_dimensions(self, client):
+        """Vérifie que /process image renvoie une miniature JPEG décodable et les dimensions."""
+        response = client.post(
+            "/process",
+            json={
+                "requestId": "thumb-1",
+                "type": "image",
+                "imageBase64": _blank_image_b64(),
+                "lang": "fr",
+            },
+        )
+        assert response.status_code == 200
+        data = response.json()
+        raw = base64.b64decode(data["thumbnailBase64"])
+        thumb = Image.open(BytesIO(raw))
+        assert thumb.format == "JPEG"
+        assert (data["sourceWidth"], data["sourceHeight"]) == (100, 100)
+        # Le type prompt ne fournit ni miniature ni chronologie.
+        prompt_res = client.post(
+            "/process",
+            json={"requestId": "p-1", "type": "prompt", "prompt": "test", "lang": "fr"},
+        )
+        assert prompt_res.json()["thumbnailBase64"] is None
+        assert prompt_res.json()["timeline"] is None
+
     def test_process_image_base64_invalide_retourne_422(self, client):
         """Vérifie qu'un base64 invalide retourne 422 (et non 500)."""
         response = client.post(

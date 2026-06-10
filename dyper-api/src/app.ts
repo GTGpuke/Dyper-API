@@ -18,7 +18,9 @@ import { analysisRoutes } from './routes/analysis/analysis.routes';
 import { analyzeRoutes } from './routes/analyze/analyze.routes';
 import { authRoutes } from './routes/auth/auth.routes';
 import { chatRoutes } from './routes/chat/chat.routes';
+import { conversationsRoutes } from './routes/conversations/conversations.routes';
 import { meRoutes } from './routes/me/me.routes';
+import { mediaRoutes } from './routes/media/media.routes';
 import aiService from './services/ai/ai.service';
 import sequelize from './services/db/database.service';
 import { env } from './services/env.service';
@@ -212,7 +214,29 @@ export async function buildApp(opts: FastifyServerOptions = {}): Promise<Fastify
       await protectedApp.register(chatRoutes, { prefix: '/api/chat' });
       await protectedApp.register(analysisRoutes, { prefix: '/api/analyses' });
       await protectedApp.register(meRoutes, { prefix: '/api/me' });
+      await protectedApp.register(conversationsRoutes, { prefix: '/api/conversations' });
     });
+  });
+
+  // ─── Médias (authentification par cookie uniquement) ──────────────────────────
+  // Scope volontairement hors X-App-Key : les miniatures sont chargées par des balises <img>
+  // qui ne peuvent pas envoyer de header custom. Le cookie JWT httpOnly reste l'authentification
+  // réelle, et chaque média est cloisonné par utilisateur dans le contrôleur.
+  await app.register(async (mediaApp) => {
+    await mediaApp.register(rateLimit, {
+      max: env.RATE_LIMIT_MAX,
+      timeWindow: env.RATE_LIMIT_WINDOW,
+      errorResponseBuilder: (request) => {
+        const e = new RateLimitExceededError();
+        return {
+          success: false,
+          requestId: String(request.id),
+          error: { code: e.code, message: e.message, details: e.details },
+        };
+      },
+    });
+    mediaApp.addHook('onRequest', verifyAuth);
+    await mediaApp.register(mediaRoutes, { prefix: '/api/media' });
   });
 
   return app;

@@ -24,6 +24,9 @@ export const env = {
   // Base de données SQLite — chemin du fichier (« :memory: » en environnement de test).
   DB_STORAGE: optional('DB_STORAGE', './data/dyper.sqlite'),
 
+  // Dossier de stockage des miniatures d'analyses (servies par /api/media).
+  MEDIA_DIR: optional('MEDIA_DIR', './data/uploads'),
+
   LOG_LEVEL: optional('LOG_LEVEL', 'info'),
   LOG_DIR: optional('LOG_DIR', 'logs'),
 

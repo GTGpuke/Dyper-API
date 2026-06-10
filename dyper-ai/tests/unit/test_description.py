@@ -75,10 +75,12 @@ class TestGenerate:
         assert "unknown_object" in result
 
     def test_structure_phrase_en(self):
-        """Vérifie la structure de phrase anglaise et l'usage du label de scène anglais."""
+        """Vérifie que la phrase d'ouverture anglaise conserve sa forme historique."""
         objects = [_obj("car")]
         result = generate(objects, _scene("street / urban traffic"), None, "en")
-        assert result == "The image shows a car in a context of street / urban traffic."
+        assert result.startswith("The image shows a car in a context of street / urban traffic.")
+        # Le compte rendu se termine par la phrase de fiabilité.
+        assert "reliable" in result
 
     def test_article_an_devant_voyelle_en(self):
         """Vérifie l'usage de « an » devant un label commençant par une voyelle."""
@@ -97,3 +99,64 @@ class TestGenerate:
         objects = [_obj("person")]
         result = generate(objects, _scene("group scene"), "Who is there?", "en")
         assert "Who is there?" in result
+
+
+@pytest.mark.unit
+class TestGenerateEnrichi:
+    """Tests du compte rendu enrichi (composition, couleurs, intérieur/extérieur, chronologie)."""
+
+    def test_composition_sujet_principal_fr(self):
+        """Vérifie la phrase de composition (position + emprise) avec une boîte englobante."""
+        from app.schemas.response import BoundingBox
+
+        # Boîte centrée occupant 25 % d'une image 100x100.
+        obj = DetectedObject(
+            label="car", confidence=0.95, boundingBox=BoundingBox(x=25, y=25, w=50, h=50)
+        )
+        result = generate([obj], _scene(), None, "fr", image_size=(100, 100))
+        assert "sujet principal" in result
+        assert "au centre" in result
+        assert "25 %" in result
+
+    def test_composition_position_gauche_en(self):
+        """Vérifie la latéralisation à gauche en anglais."""
+        from app.schemas.response import BoundingBox
+
+        obj = DetectedObject(
+            label="dog", confidence=0.9, boundingBox=BoundingBox(x=0, y=40, w=20, h=20)
+        )
+        result = generate([obj], _scene(), None, "en", image_size=(100, 100))
+        assert "on the left side" in result
+
+    def test_couleurs_nommees_fr(self):
+        """Vérifie la traduction des couleurs hexadécimales en noms français."""
+        result = generate([_obj("car")], _scene(), None, "fr", colors=["#FF0000", "#0000CC"])
+        assert "rouge" in result
+        assert "bleu" in result
+
+    def test_interieur_fr(self):
+        """Vérifie la phrase intérieur/extérieur quand la scène est qualifiée."""
+        scene = Scene(label="salon", confidence=0.7, indoor=True)
+        result = generate([_obj("couch")], scene, None, "fr")
+        assert "en intérieur" in result
+
+    def test_fiabilite_faible_fr(self):
+        """Vérifie le qualificatif de fiabilité basse pour une confiance moyenne faible."""
+        result = generate([_obj("car", conf=0.3)], _scene(), None, "fr")
+        assert "prudence" in result
+
+    def test_chronologie_video_fr(self):
+        """Vérifie la durée et les phrases de présence générées depuis la chronologie."""
+        from app.schemas.response import TimelineEntry
+
+        timeline = [
+            TimelineEntry(t=0.0, labels=["person"]),
+            TimelineEntry(t=30.0, labels=["person", "car"]),
+            TimelineEntry(t=60.0, labels=["person"]),
+        ]
+        result = generate([_obj("person"), _obj("car")], _scene(), None, "fr", timeline=timeline)
+        assert "La vidéo dure environ 1:00." in result
+        assert "tout au long de la vidéo" in result
+        # « car » présent sur 1 échantillon sur 3 → apparition ponctuelle avec horodatage.
+        assert "ponctuellement" in result
+        assert "0:30" in result
