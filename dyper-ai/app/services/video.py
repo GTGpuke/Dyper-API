@@ -53,9 +53,7 @@ def extract_frames(video_base64: str) -> list[Image.Image]:
         duration_s = total_frames / fps
 
         if duration_s > settings.VIDEO_MAX_DURATION_S:
-            raise VideoTooLongError(
-                "La vidéo dépasse la durée maximale autorisée de 5 minutes."
-            )
+            raise VideoTooLongError("La vidéo dépasse la durée maximale autorisée de 5 minutes.")
 
         # Nombre d'images = cadence cible sur toute la durée, plafonné, borné au nombre de frames.
         target = math.ceil(duration_s * settings.VIDEO_SAMPLE_FPS)
