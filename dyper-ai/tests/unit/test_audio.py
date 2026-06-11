@@ -1,5 +1,6 @@
 """Tests unitaires du service audio : extraction, transcription et reconnaissance musicale."""
 
+import sys
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
@@ -11,6 +12,17 @@ from app.services.audio import (
     recognize_music_file,
     transcribe_file,
 )
+
+
+def _faux_imageio_ffmpeg() -> MagicMock:
+    """Faux module imageio_ffmpeg injecté dans sys.modules (paquet absent en CI).
+
+    L'import différé du service (`import imageio_ffmpeg` dans extract_audio) résout
+    d'abord sys.modules : le stub est servi sans que le vrai paquet soit installé.
+    """
+    fake = MagicMock()
+    fake.get_ffmpeg_exe.return_value = "/bin/ffmpeg"
+    return fake
 
 
 @pytest.mark.unit
@@ -39,7 +51,7 @@ class TestExtraction:
         failed = MagicMock(returncode=1)
         with (
             patch("app.services.audio.subprocess.run", return_value=failed),
-            patch("imageio_ffmpeg.get_ffmpeg_exe", return_value="/bin/ffmpeg"),
+            patch.dict(sys.modules, {"imageio_ffmpeg": _faux_imageio_ffmpeg()}),
         ):
             assert extract_audio("/tmp/video.mp4") is None
 
@@ -48,7 +60,7 @@ class TestExtraction:
         ok = MagicMock(returncode=0)
         with (
             patch("app.services.audio.subprocess.run", return_value=ok),
-            patch("imageio_ffmpeg.get_ffmpeg_exe", return_value="/bin/ffmpeg"),
+            patch.dict(sys.modules, {"imageio_ffmpeg": _faux_imageio_ffmpeg()}),
             patch("app.services.audio.os.path.exists", return_value=True),
             patch("app.services.audio.os.path.getsize", return_value=30 * 1024 * 1024),
             patch("app.services.audio.os.remove"),
