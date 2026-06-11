@@ -1,9 +1,9 @@
 """Tests unitaires du détecteur à vocabulaire ouvert (WorldRunner, modèle mocké)."""
 
+from types import SimpleNamespace
 from unittest.mock import MagicMock
 
 import pytest
-import torch
 from app.services.world_runner import WorldRunner
 
 
@@ -12,9 +12,10 @@ def _runner_with_mock_model(clip_device: str = "cpu") -> tuple[WorldRunner, Magi
     runner = WorldRunner()
     model = MagicMock()
     # Wrapper CLIP en cache : poids sur `clip_device`, attribut device volontairement périmé.
+    # Les poids sont un simple objet à attribut device (torch n'est pas installé en CI).
     # Un itérateur FRAIS à chaque appel (next() épuiserait un return_value unique).
     clip_wrapper = MagicMock()
-    weights = torch.zeros(1, device=clip_device)
+    weights = SimpleNamespace(device=clip_device)
     clip_wrapper.model.parameters.side_effect = lambda: iter([weights])
     clip_wrapper.device = "périmé"
     model.model.clip_model = clip_wrapper
