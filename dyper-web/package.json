@@ -6,7 +6,7 @@
   "description": "Interface utilisateur chatbot Dyper — React / TypeScript / Vite",
   "scripts": {
     "dev": "vite",
-    "build": "tsc -b && vite build",
+    "build": "tsc -b && tsc -p tsconfig.node.json && vite build",
     "lint": "eslint .",
     "preview": "vite preview"
   },

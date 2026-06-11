@@ -118,9 +118,9 @@ télécharge côté modèles.
 ### Temps d'analyse à annoncer (RTX 3050)
 | Média | Durée attendue |
 |---|---|
-| Image | ~3 à 8 s |
-| Vidéo 30 s | ~30 à 60 s |
-| Vidéo 2-3 min / lien YouTube | 1 à 3 min |
+| Image | ~3 à 10 s |
+| Vidéo 30 s | ~1 à 2 min |
+| Vidéo 2-5 min / lien YouTube | ~3 à 10 min (analyse approfondie : 3 images/s, chapitres) |
 
 (La barre de progression et les étapes s'affichent pendant l'analyse — c'est un moment de
 narration, pas un temps mort.)
@@ -131,6 +131,7 @@ narration, pas un temps mort.)
 | Plus d'internet | Descriptions riches/audio/YouTube indisponibles ; **la détection locale COCO et le lecteur continuent de fonctionner** | Partage de connexion, ou démo sur les analyses déjà en historique |
 | VRAM saturée (rare) | Bascule CPU automatique (plus lent, jamais bloquant) | Option : `WORLD_MODEL_VARIANT=yolov8l-worldv2` dans dyper-ai/.env + relancer |
 | Un service plante | — | Relancer son terminal ; l'historique et les comptes sont persistés (SQLite) |
+| Chapitres « sans description » sur une longue vidéo | Limite de tokens/minute du palier gratuit Groq (les retries absorbent l'essentiel) | Attendre 1 min entre deux analyses longues ; pour un confort total le jour J : **Dev Tier Groq** (console.groq.com/settings/billing, facturation à l'usage, très bon marché) |
 
 ## Dépannage express
 

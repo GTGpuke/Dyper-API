@@ -53,6 +53,22 @@ export interface MusicInfo {
   album?: string | null;
 }
 
+/** Tranche horodatée de la transcription audio. */
+export interface TranscriptSegment {
+  start: number;
+  end: number;
+  text: string;
+}
+
+/** Chapitre d'analyse vidéo : ce qu'on voit et ce qu'on entend sur un intervalle. */
+export interface Chapter {
+  tStart: number;
+  tEnd: number;
+  description: string | null;
+  elements: string[];
+  transcript: string | null;
+}
+
 /** Réponse brute du service d'inférence dyper-ai (POST /process). */
 export interface ProcessAiResponse {
   requestId: string;
@@ -68,6 +84,8 @@ export interface ProcessAiResponse {
   audioTranscript?: string | null;
   frames?: FrameDetections[] | null;
   music?: MusicInfo | null;
+  transcriptSegments?: TranscriptSegment[] | null;
+  chapters?: Chapter[] | null;
   /** Vidéo téléchargée depuis une URL de plateforme (base64) — à stocker côté passerelle. */
   videoBase64?: string | null;
 }
@@ -104,6 +122,8 @@ export interface ChatContext {
   audioTranscript?: string | null;
   /** Bande-son identifiée (vidéos) — enrichit le prompt système. */
   music?: MusicInfo | null;
+  /** Chapitres alignés vision/audio (vidéos) — enrichit le prompt système. */
+  chapters?: Chapter[] | null;
 }
 
 // ─── Préférences utilisateur (colonne JSON `settings` du modèle User) ──────────
@@ -168,6 +188,8 @@ export interface InlineAnalysis {
   videoUrl: string | null;
   frames: FrameDetections[] | null;
   music: MusicInfo | null;
+  transcriptSegments: TranscriptSegment[] | null;
+  chapters: Chapter[] | null;
 }
 
 /** Vue d'un message renvoyée au client (analyse inlinée si carte). */

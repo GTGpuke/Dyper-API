@@ -12,37 +12,40 @@ export default {
         mono: ['"JetBrains Mono"', 'ui-monospace', 'monospace'],
       },
       colors: {
-        // Accent principal : indigo raffiné, utilisé avec parcimonie.
+        // Accent principal : « iris », fusion bleu-violet fidèle au branding (les dégradés
+        // bleu → violet restent sur les points focaux).
         brand: {
-          50: '#eef2ff',
-          100: '#e0e7ff',
-          200: '#c7d2fe',
-          300: '#a5b4fc',
-          400: '#818cf8',
-          500: '#6366f1',
-          600: '#4f46e5',
-          700: '#4338ca',
-          800: '#3730a3',
-          900: '#312e81',
+          50: '#f0f1fe',
+          100: '#e3e3fd',
+          200: '#cccbfb',
+          300: '#ada9f7',
+          400: '#8f83f1',
+          500: '#7463ea',
+          600: '#5f49dd',
+          700: '#5038c2',
+          800: '#42309c',
+          900: '#382c7d',
         },
-        // Neutres chauds pour les surfaces et le texte.
+        // Neutres en dégradé de chaleur : le FOND sombre est quasi neutre, et la chaleur
+        // n'apparaît que dans les tons éloignés du fond (textes et surfaces claires).
         ink: {
-          50: '#f8fafc',
-          100: '#f1f5f9',
-          200: '#e2e8f0',
-          300: '#cbd5e1',
-          400: '#94a3b8',
-          500: '#64748b',
-          600: '#475569',
-          700: '#334155',
-          800: '#1e293b',
-          900: '#0f172a',
+          50: '#f9f8f6',
+          100: '#efedea',
+          200: '#e2dfd9',
+          300: '#cbc7bf',
+          400: '#9d988e',
+          500: '#76726a',
+          600: '#57544f',
+          700: '#403e41',
+          800: '#2b2a2e',
+          900: '#1f1f22',
+          950: '#18181a',
         },
       },
       boxShadow: {
-        card: '0 1px 2px 0 rgb(15 23 42 / 0.04), 0 1px 3px 0 rgb(15 23 42 / 0.06)',
-        'card-hover': '0 10px 30px -12px rgb(15 23 42 / 0.18)',
-        focus: '0 0 0 3px rgb(99 102 241 / 0.25)',
+        card: '0 1px 2px 0 rgb(24 24 26 / 0.04), 0 1px 3px 0 rgb(24 24 26 / 0.06)',
+        'card-hover': '0 10px 30px -12px rgb(24 24 26 / 0.18)',
+        focus: '0 0 0 3px rgb(116 99 234 / 0.25)',
       },
       keyframes: {
         'fade-in': {

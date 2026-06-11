@@ -34,7 +34,8 @@ function walk(dir) {
 }
 
 const used = new Set()
-const dynamicPrefixes = new Set()
+// Préfixes utilisés via des variables (tableaux de clés) — indétectables statiquement.
+const dynamicPrefixes = new Set(['analyzing.'])
 for (const f of walk(srcDir)) {
   const c = readFileSync(f, 'utf8')
   for (const m of c.matchAll(/\bt\(\s*'([^']+)'/g)) used.add(m[1])

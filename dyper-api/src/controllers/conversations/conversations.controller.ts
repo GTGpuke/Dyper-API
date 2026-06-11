@@ -1,12 +1,14 @@
 // Contrôleurs CRUD des conversations (toutes les routes sont cloisonnées par utilisateur).
 import type { FastifyReply, FastifyRequest } from 'fastify';
-import { Conversation, Message } from '../../models';
+import { Op } from 'sequelize';
+import { Analysis, ChatExchange, Conversation, Message } from '../../models';
 import {
   buildMessageViews,
   findOwnedConversation,
   touchConversation,
 } from '../../services/conversations/conversation.service';
 import sequelize from '../../services/db/database.service';
+import { deleteMediaFiles } from '../../services/media/media.service';
 import { ValidationError } from '../../utils/errors';
 
 // GET /api/conversations — liste paginée (sans les messages), triée par activité récente.
@@ -80,15 +82,47 @@ export async function deleteConversation(
   request: FastifyRequest<{ Params: { id: string } }>,
   reply: FastifyReply
 ): Promise<void> {
-  const conversation = await findOwnedConversation(
-    request.params.id,
-    request.authUser?.id as string
-  );
+  const userId = request.authUser?.id as string;
+  const conversation = await findOwnedConversation(request.params.id, userId);
+
+  // Supprimer une conversation efface aussi ses analyses : lignes d'historique, échanges
+  // de chat associés, et fichiers médias (miniatures + vidéos) sur disque.
+  const requestIds = (
+    await Message.findAll({
+      attributes: ['analysis_request_id'],
+      where: { conversation_id: conversation.id },
+    })
+  )
+    .map((m) => m.analysis_request_id)
+    .filter((id): id is string => Boolean(id));
+
+  // Chemins des médias collectés avant la transaction (le disque n'est pas transactionnel).
+  const mediaPaths =
+    requestIds.length > 0
+      ? (
+          await Analysis.findAll({
+            attributes: ['thumbnail_path', 'video_path'],
+            where: { request_id: { [Op.in]: requestIds }, user_id: userId },
+          })
+        ).flatMap((a) => [a.thumbnail_path, a.video_path])
+      : [];
 
   await sequelize.transaction(async (tx) => {
+    if (requestIds.length > 0) {
+      await ChatExchange.destroy({
+        where: { analysis_request_id: { [Op.in]: requestIds }, user_id: userId },
+        transaction: tx,
+      });
+      await Analysis.destroy({
+        where: { request_id: { [Op.in]: requestIds }, user_id: userId },
+        transaction: tx,
+      });
+    }
     await Message.destroy({ where: { conversation_id: conversation.id }, transaction: tx });
     await conversation.destroy({ transaction: tx });
   });
+
+  await deleteMediaFiles(mediaPaths);
 
   reply.send({ success: true });
 }

@@ -2,7 +2,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import type { FastifyInstance } from 'fastify';
 import { buildApp } from '../../src/app';
-import { Analysis } from '../../src/models';
+import { Analysis, ChatExchange } from '../../src/models';
 import aiService from '../../src/services/ai/ai.service';
 import groqService from '../../src/services/chat/groq.service';
 import { connectDatabase } from '../../src/services/db/database.service';
@@ -295,6 +295,51 @@ describe('Envoi de messages (/api/conversations/:id/messages)', () => {
     expect(analysis.videoUrl).toBe(`/api/media/${analysis.requestId}/video`);
     const onDisk = path.join(process.env.MEDIA_DIR as string, `${analysis.requestId}.mp4`);
     expect(fs.existsSync(onDisk)).toBe(true);
+  });
+
+  it('supprimer une conversation efface ses analyses, chats et médias du disque', async () => {
+    const id = await newConversation();
+    // 1) Analyse vidéo : miniature + vidéo écrites sur disque.
+    const { payload, contentType } = buildMultipart({
+      file: { content: Buffer.from('mp4'), filename: 'cascade.mp4', contentType: 'video/mp4' },
+    });
+    const sent = await app.inject({
+      method: 'POST',
+      url: `/api/conversations/${id}/messages`,
+      headers: { ...auth.headers, 'content-type': contentType },
+      payload,
+    });
+    const requestId = sent.json().messages[1].analysis.requestId;
+
+    // 2) Question de suivi : crée un échange de chat lié à l'analyse.
+    jest.spyOn(groqService, 'chatWithResult').mockResolvedValue({
+      answer: 'Réponse.',
+      model: 'test',
+    });
+    await app.inject({
+      method: 'POST',
+      url: `/api/conversations/${id}/messages`,
+      headers: auth.headers,
+      payload: { text: 'Une question ?' },
+    });
+
+    const row = await Analysis.findOne({ where: { request_id: requestId } });
+    const thumbOnDisk = path.join(process.env.MEDIA_DIR as string, row?.thumbnail_path as string);
+    const videoOnDisk = path.join(process.env.MEDIA_DIR as string, row?.video_path as string);
+    expect(fs.existsSync(thumbOnDisk)).toBe(true);
+    expect(fs.existsSync(videoOnDisk)).toBe(true);
+
+    // 3) Suppression de la conversation → tout disparaît (historique, chats, fichiers).
+    const del = await app.inject({
+      method: 'DELETE',
+      url: `/api/conversations/${id}`,
+      headers: auth.headers,
+    });
+    expect(del.statusCode).toBe(200);
+    expect(await Analysis.findOne({ where: { request_id: requestId } })).toBeNull();
+    expect(await ChatExchange.count({ where: { analysis_request_id: requestId } })).toBe(0);
+    expect(fs.existsSync(thumbOnDisk)).toBe(false);
+    expect(fs.existsSync(videoOnDisk)).toBe(false);
   });
 
   it('purge totale → conversations supprimées, miniatures et vidéos effacées du disque', async () => {

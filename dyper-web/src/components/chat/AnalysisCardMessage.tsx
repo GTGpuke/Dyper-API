@@ -6,6 +6,7 @@ import { useI18n } from '../../contexts/I18nContext'
 import { mediaUrl, videoUrl } from '../../services/api'
 import type { InlineAnalysis } from '../../types'
 import { BoundingBoxOverlay } from '../result/BoundingBoxOverlay'
+import { ChapterList } from '../result/ChapterList'
 import { ColorPalette } from '../result/ColorPalette'
 import { MusicBadge } from '../result/MusicBadge'
 import { ObjectList } from '../result/ObjectList'
@@ -84,14 +85,24 @@ export function AnalysisCardMessage({ analysis }: { analysis: InlineAnalysis }) 
         </div>
       )}
 
-      {/* Transcription de la piste audio (vidéos). */}
-      {analysis.audioTranscript && (
+      {/* Chapitres alignés vision/audio — sinon transcription globale seule (vidéos). */}
+      {analysis.chapters && analysis.chapters.length > 0 ? (
         <div>
-          <h4 className="eyebrow mb-2">{t('transcript.title')}</h4>
-          <blockquote className="rounded-xl border-l-2 border-brand-400 bg-ink-50 px-3.5 py-2.5 text-sm italic leading-relaxed text-ink-600 dark:bg-ink-800/60 dark:text-ink-300">
-            {analysis.audioTranscript}
-          </blockquote>
+          <h4 className="eyebrow mb-2">{t('chapters.title')}</h4>
+          <ChapterList
+            chapters={analysis.chapters}
+            onSeek={hasPlayer ? (time) => seekRef.current?.(time) : undefined}
+          />
         </div>
+      ) : (
+        analysis.audioTranscript && (
+          <div>
+            <h4 className="eyebrow mb-2">{t('transcript.title')}</h4>
+            <blockquote className="rounded-xl border-l-2 border-brand-400 bg-ink-50 px-3.5 py-2.5 text-sm italic leading-relaxed text-ink-600 dark:bg-ink-800/60 dark:text-ink-300">
+              {analysis.audioTranscript}
+            </blockquote>
+          </div>
+        )
       )}
 
       {/* Détails repliés par défaut pour garder le fil compact. */}

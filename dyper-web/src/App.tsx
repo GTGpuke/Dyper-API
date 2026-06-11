@@ -3,16 +3,20 @@ import { useEffect } from 'react'
 import { Navigate, Route, Routes } from 'react-router-dom'
 import { ProtectedRoute } from './components/auth/ProtectedRoute'
 import { AppLayout } from './components/layout/AppLayout'
+import { DocsHome } from './components/docs/DocsHome'
+import { DocsLayout } from './components/docs/DocsLayout'
+import { GuidePage } from './components/docs/GuidePage'
+import { ReferencePage } from './components/docs/ReferencePage'
 import { useAuth } from './contexts/AuthContext'
 import { useI18n } from './contexts/I18nContext'
 import { useTheme } from './contexts/ThemeContext'
 import type { Lang } from './i18n/translations'
-import { ApiDocsPage } from './pages/ApiDocsPage'
 import { ChatPage } from './pages/ChatPage'
 import { DashboardPage } from './pages/DashboardPage'
 import { DetailPage } from './pages/DetailPage'
 import { HistoryPage } from './pages/HistoryPage'
 import { LoginPage } from './pages/LoginPage'
+import { PricingPage } from './pages/PricingPage'
 import { RegisterPage } from './pages/RegisterPage'
 import { SettingsPage } from './pages/SettingsPage'
 
@@ -47,8 +51,13 @@ export function App() {
       <Routes>
         <Route path="/login" element={<LoginPage />} />
         <Route path="/register" element={<RegisterPage />} />
-        {/* Documentation API publique (accessible sans compte). */}
-        <Route path="/api-docs" element={<ApiDocsPage />} />
+        {/* Documentation publique (accessible sans compte) : accueil, guides et référence API. */}
+        <Route path="/api-docs" element={<DocsLayout />}>
+          <Route index element={<DocsHome />} />
+          <Route path="guide/:guideId" element={<GuidePage />} />
+          <Route path="reference/:sectionId" element={<ReferencePage />} />
+          <Route path="*" element={<Navigate to="/api-docs" replace />} />
+        </Route>
 
         <Route element={<ProtectedRoute />}>
           <Route element={<AppLayout />}>
@@ -59,6 +68,7 @@ export function App() {
             <Route path="dashboard" element={<DashboardPage />} />
             <Route path="settings" element={<SettingsPage />} />
             <Route path="settings/:section" element={<SettingsPage />} />
+            <Route path="pricing" element={<PricingPage />} />
           </Route>
         </Route>
 

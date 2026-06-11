@@ -52,8 +52,8 @@ export async function analyzeFile(file: File, prompt?: string, lang = 'fr'): Pro
   form.append('file', file)
   if (prompt) form.append('prompt', prompt)
   form.append('lang', lang)
-  // L'analyse vidéo est plus longue (nombreuses images) : timeout étendu côté client.
-  const timeout = file.type.startsWith('video/') ? 180_000 : undefined
+  // L'analyse vidéo à fond (900 frames + chapitres) peut durer plusieurs minutes.
+  const timeout = file.type.startsWith('video/') ? 900_000 : undefined
   const { data } = await client.post<ApiResponse<AnalysisResult>>('/api/analyze', form, { timeout })
   return unwrap(data)
 }
@@ -112,6 +112,21 @@ export async function getChatHistory(requestId: string): Promise<ChatExchangeRec
 export async function getHealth(): Promise<HealthStatus> {
   const { data } = await client.get<HealthStatus>('/health')
   return data
+}
+
+// ─── Testeur de la documentation ─────────────────────────────────────────────
+
+/**
+ * Exécute une requête GET brute pour le testeur « Essayer » de la documentation :
+ * retourne le statut HTTP et le corps tels quels, sans jamais rejeter.
+ */
+export async function probe(path: string): Promise<{ status: number; body: unknown }> {
+  try {
+    const { status, data } = await client.get<unknown>(path, { validateStatus: () => true })
+    return { status, body: data }
+  } catch (error) {
+    return { status: 0, body: { success: false, error } }
+  }
 }
 
 // ─── Authentification ────────────────────────────────────────────────────────
@@ -229,8 +244,8 @@ export async function sendConversationMessage(
     form.append('file', input.file)
     if (input.text) form.append('text', input.text)
     form.append('lang', input.lang ?? 'fr')
-    // L'analyse vidéo est plus longue (nombreuses images) : timeout étendu côté client.
-    const timeout = input.file.type.startsWith('video/') ? 180_000 : undefined
+    // L'analyse vidéo à fond (900 frames + chapitres) peut durer plusieurs minutes.
+    const timeout = input.file.type.startsWith('video/') ? 900_000 : undefined
     const { data } = await client.post<{
       conversation: Conversation
       messages: ConversationMessage[]
@@ -246,7 +261,7 @@ export async function sendConversationMessage(
   }
   // Une URL de plateforme vidéo (YouTube / Twitch) implique téléchargement + analyse complète :
   // timeout étendu comme pour un fichier vidéo.
-  const timeout = input.url && isVideoPlatformUrl(input.url) ? 240_000 : undefined
+  const timeout = input.url && isVideoPlatformUrl(input.url) ? 900_000 : undefined
   const { data } = await client.post<{
     conversation: Conversation
     messages: ConversationMessage[]

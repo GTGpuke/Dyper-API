@@ -283,6 +283,11 @@ Au-dessus de YOLO (conservé pour les cadres précis et déterministes), dyper-a
 lorsque la clé Groq est présente — le tout en **best-effort** (tout échec retombe sur la
 description template locale, jamais d'échec d'analyse) :
 
+- **Analyse vidéo chapitrée** : échantillonnage à 3 img/s sur toute la durée admise (≤ 5 min,
+  cadence jamais dégradée), transcription **horodatée** (Whisper verbose), analyse vision par
+  segment de 20 s (parallèle) → `chapters` alignant ce qu'on voit et ce qu'on entend, et
+  vocabulaire de détection = **union** global + chapitres (un seul `set_classes`, tracking
+  stable, éléments tardifs couverts). Inférence YOLO-World en 1280 px (`WORLD_IMGSZ`).
 - **Décrire puis ancrer** : le modèle vision liste d'abord les éléments réellement visibles
   (ligne structurée `ELEMENTS:` en fin de réponse, plus `SCENE:`/`INDOOR:`), puis **YOLO-World**
   (`app/services/world_runner.py`, vocabulaire ouvert, GPU automatique avec bascule CPU si VRAM

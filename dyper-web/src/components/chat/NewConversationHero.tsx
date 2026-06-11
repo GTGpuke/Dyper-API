@@ -2,6 +2,7 @@
 // coller, URL), aperçu complet du média sélectionné et lancement de l'analyse.
 import { useEffect, useRef, useState, type DragEvent } from 'react'
 import { AnimatePresence, motion } from 'framer-motion'
+import logo from '../../assets/dyper-logo.svg'
 import { useI18n } from '../../contexts/I18nContext'
 import { cn } from '../../lib/cn'
 import type { PendingAttachment } from '../../types'
@@ -19,7 +20,8 @@ interface Props {
   onPickFile: (file: File) => void
   onAttachUrl: (url: string) => void
   onRemoveAttachment: () => void
-  onAnalyze: () => void
+  /** Lance l'analyse : question optionnelle (avec pièce jointe) ou texte libre (sans). */
+  onSubmit: (text: string) => void
 }
 
 export function NewConversationHero({
@@ -30,12 +32,13 @@ export function NewConversationHero({
   onPickFile,
   onAttachUrl,
   onRemoveAttachment,
-  onAnalyze,
+  onSubmit,
 }: Props) {
   const { t } = useI18n()
   const [dragging, setDragging] = useState(false)
   const [urlMode, setUrlMode] = useState(false)
   const [url, setUrl] = useState('')
+  const [question, setQuestion] = useState('')
   const dragDepthRef = useRef(0)
   const fileInputRef = useRef<HTMLInputElement>(null)
 
@@ -74,12 +77,7 @@ export function NewConversationHero({
       <div className="w-full max-w-2xl">
         {/* En-tête. */}
         <div className="mb-6 text-center">
-          <div className="mx-auto mb-4 grid h-14 w-14 place-items-center rounded-2xl bg-brand-600 text-white shadow-card-hover">
-            <svg className="h-7 w-7" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-              <circle cx="11" cy="11" r="7" />
-              <path d="M21 21l-4-4" strokeLinecap="round" />
-            </svg>
-          </div>
+          <img src={logo} alt="" className="mx-auto mb-4 h-14 w-14 rounded-2xl object-contain" />
           <h1 className="text-2xl font-bold tracking-tight text-ink-900 dark:text-ink-50">
             {t('hero.title')}
           </h1>
@@ -129,7 +127,7 @@ export function NewConversationHero({
                 )
               )}
 
-              <div className="flex flex-wrap items-center justify-between gap-3 border-t border-ink-100 p-4 dark:border-ink-800">
+              <div className="flex flex-wrap items-center justify-between gap-2 border-t border-ink-100 px-4 pt-3 dark:border-ink-800">
                 <div className="min-w-0">
                   {fileAttachment && (
                     <>
@@ -149,22 +147,36 @@ export function NewConversationHero({
                     </>
                   )}
                 </div>
-                <div className="flex shrink-0 items-center gap-2">
-                  <Button variant="ghost" size="sm" onClick={onRemoveAttachment}>
-                    {t('chat.attach.remove')}
-                  </Button>
-                  <Button size="sm" onClick={onAnalyze} disabled={analyzeDisabled || checking}>
-                    <svg className="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                      <circle cx="11" cy="11" r="7" />
-                      <path d="M21 21l-4-4" strokeLinecap="round" />
-                    </svg>
-                    {t('hero.analyze')}
-                  </Button>
-                </div>
+                <Button variant="ghost" size="sm" onClick={onRemoveAttachment}>
+                  {t('chat.attach.remove')}
+                </Button>
               </div>
-              <p className="border-t border-ink-100 px-4 py-2.5 text-center text-xs text-ink-400 dark:border-ink-800 dark:text-ink-500">
-                {t('hero.optionalHint')}
-              </p>
+
+              {/* Question optionnelle + lancement (la confirmation se fait ici, preview en tête). */}
+              <div className="flex items-center gap-2 p-4">
+                <input
+                  type="text"
+                  value={question}
+                  onChange={(e) => setQuestion(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter' && !analyzeDisabled && !checking) onSubmit(question.trim())
+                  }}
+                  placeholder={t('hero.questionPlaceholder')}
+                  className="min-w-0 flex-1 rounded-xl border border-ink-200 bg-white px-3.5 py-2.5 text-sm outline-none focus:border-violet-400 focus:shadow-focus dark:border-ink-700 dark:bg-ink-800 dark:text-ink-50"
+                />
+                <button
+                  type="button"
+                  onClick={() => onSubmit(question.trim())}
+                  disabled={analyzeDisabled || checking}
+                  className="flex shrink-0 items-center gap-1.5 rounded-xl bg-gradient-to-r from-blue-500 to-violet-600 px-4 py-2.5 text-sm font-semibold text-white shadow-card transition-all hover:shadow-card-hover hover:brightness-110 disabled:opacity-50"
+                >
+                  <svg className="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                    <circle cx="11" cy="11" r="7" />
+                    <path d="M21 21l-4-4" strokeLinecap="round" />
+                  </svg>
+                  {t('hero.analyze')}
+                </button>
+              </div>
             </motion.div>
           ) : (
             /* ─── Zone de dépôt ───────────────────────────────────────────── */
@@ -227,10 +239,10 @@ export function NewConversationHero({
                 <p className="mt-2 text-xs text-ink-400 dark:text-ink-500">{t('hero.limits')}</p>
               </button>
 
-              {/* Option URL. */}
-              <div className="mt-4 text-center">
+              {/* Option URL (seule entrée secondaire : Dyper analyse des médias, pas du texte). */}
+              <div className="mt-4 flex flex-col items-center gap-2 text-center">
                 {urlMode ? (
-                  <div className="mx-auto flex max-w-md items-center gap-2">
+                  <div className="flex w-full max-w-md items-center gap-2">
                     <input
                       type="url"
                       value={url}
@@ -242,7 +254,7 @@ export function NewConversationHero({
                       placeholder={t('chat.attach.urlPlaceholder')}
                       // biome-ignore lint/a11y/noAutofocus: champ révélé par une action volontaire de l'utilisateur.
                       autoFocus
-                      className="min-w-0 flex-1 rounded-xl border border-ink-200 bg-white px-4 py-2.5 text-sm outline-none focus:border-brand-400 focus:shadow-focus dark:border-ink-700 dark:bg-ink-800 dark:text-ink-50"
+                      className="min-w-0 flex-1 rounded-xl border border-ink-200 bg-white px-4 py-2.5 text-sm outline-none focus:border-violet-400 focus:shadow-focus dark:border-ink-700 dark:bg-ink-800 dark:text-ink-50"
                     />
                     <Button size="sm" onClick={submitUrl}>
                       {t('chat.attach.urlAdd')}
@@ -252,7 +264,7 @@ export function NewConversationHero({
                   <button
                     type="button"
                     onClick={() => setUrlMode(true)}
-                    className="text-sm text-brand-600 hover:underline dark:text-brand-400"
+                    className="text-sm text-violet-600 hover:underline dark:text-violet-400"
                   >
                     {t('hero.orUrl')}
                   </button>

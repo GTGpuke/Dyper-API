@@ -8,7 +8,8 @@ export default defineConfig({
     port: 5173,
     strictPort: true,
     proxy: {
-      '/api': { target: 'http://localhost:3000', changeOrigin: true },
+      // « ^/api/ » (regex) et non « /api » : sinon le préfixe avale aussi la page /api-docs.
+      '^/api/': { target: 'http://localhost:3000', changeOrigin: true },
       '/health': { target: 'http://localhost:3000', changeOrigin: true },
     },
   },

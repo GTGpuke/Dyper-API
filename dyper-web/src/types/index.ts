@@ -30,6 +30,22 @@ export interface MusicInfo {
   album?: string | null
 }
 
+/** Tranche horodatée de la transcription audio. */
+export interface TranscriptSegment {
+  start: number
+  end: number
+  text: string
+}
+
+/** Chapitre d'analyse vidéo : ce qu'on voit et ce qu'on entend sur un intervalle. */
+export interface Chapter {
+  tStart: number
+  tEnd: number
+  description: string | null
+  elements: string[]
+  transcript: string | null
+}
+
 export interface Scene {
   label: string
   confidence: number
@@ -87,6 +103,8 @@ export interface AnalysisRecord {
   video_path: string | null
   frame_detections: FrameDetections[] | null
   music: MusicInfo | null
+  transcript_segments: TranscriptSegment[] | null
+  chapters: Chapter[] | null
   created_at: string
 }
 
@@ -224,6 +242,8 @@ export interface InlineAnalysis {
   videoUrl: string | null
   frames: FrameDetections[] | null
   music: MusicInfo | null
+  transcriptSegments: TranscriptSegment[] | null
+  chapters: Chapter[] | null
 }
 
 export interface ConversationMessage {

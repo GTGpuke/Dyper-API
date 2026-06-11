@@ -6,6 +6,7 @@ import { PageContainer } from '../components/layout/PageContainer'
 import { PageHeader } from '../components/layout/PageHeader'
 import { MusicBadge } from '../components/result/MusicBadge'
 import { SceneBadge } from '../components/result/SceneBadge'
+import { ChapterList } from '../components/result/ChapterList'
 import { ColorPalette } from '../components/result/ColorPalette'
 import { TagCloud } from '../components/result/TagCloud'
 import { VideoPlayer } from '../components/result/VideoPlayer'
@@ -104,12 +105,21 @@ export function DetailPage() {
                   </Section>
                 )}
 
-                {analysis.audio_transcript && (
-                  <Section title={t('transcript.title')}>
-                    <blockquote className="rounded-xl border-l-2 border-brand-400 bg-ink-50 px-3.5 py-2.5 text-sm italic leading-relaxed text-ink-600 dark:bg-ink-800/60 dark:text-ink-300">
-                      {analysis.audio_transcript}
-                    </blockquote>
+                {analysis.chapters && analysis.chapters.length > 0 ? (
+                  <Section title={t('chapters.title')}>
+                    <ChapterList
+                      chapters={analysis.chapters}
+                      onSeek={hasPlayer ? (time) => seekRef.current?.(time) : undefined}
+                    />
                   </Section>
+                ) : (
+                  analysis.audio_transcript && (
+                    <Section title={t('transcript.title')}>
+                      <blockquote className="rounded-xl border-l-2 border-brand-400 bg-ink-50 px-3.5 py-2.5 text-sm italic leading-relaxed text-ink-600 dark:bg-ink-800/60 dark:text-ink-300">
+                        {analysis.audio_transcript}
+                      </blockquote>
+                    </Section>
+                  )
                 )}
 
                 <Section title={t('result.scene')}>

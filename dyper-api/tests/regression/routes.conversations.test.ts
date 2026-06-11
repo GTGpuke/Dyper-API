@@ -91,7 +91,7 @@ describe('CRUD des conversations (/api/conversations)', () => {
     expect(res.json().conversation.title).toBe('Titre choisi');
   });
 
-  it('supprime une conversation sans toucher aux analyses', async () => {
+  it('supprime une conversation vide (404 ensuite, autres analyses intactes)', async () => {
     const id = await createConversation(alice);
     const before = await Analysis.count();
     const res = await app.inject({
@@ -100,6 +100,7 @@ describe('CRUD des conversations (/api/conversations)', () => {
       headers: alice.headers,
     });
     expect(res.statusCode).toBe(200);
+    // Conversation sans message : aucune analyse n'est concernée.
     expect(await Analysis.count()).toBe(before);
 
     const after = await app.inject({

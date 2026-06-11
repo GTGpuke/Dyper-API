@@ -58,15 +58,22 @@ class TestExtraction:
 
 @pytest.mark.unit
 class TestTranscription:
-    """Tests de la transcription Whisper."""
+    """Tests de la transcription Whisper horodatée."""
 
     async def test_sans_cle_retourne_none(self):
         """Vérifie que la transcription est désactivée sans clé Groq (défaut des tests)."""
-        assert await transcribe_file("/tmp/audio.m4a") is None
+        assert await transcribe_file("/tmp/audio.m4a") == (None, None)
 
-    async def test_transcription_reussie(self):
-        """Vérifie le chemin nominal : texte Whisper nettoyé."""
-        transcription = MagicMock(text="  Bonjour à tous.  ")
+    async def test_transcription_reussie_avec_tranches(self):
+        """Vérifie le chemin nominal : texte nettoyé + tranches horodatées parsées."""
+        transcription = MagicMock(
+            text="  Bonjour à tous.  ",
+            segments=[
+                {"start": 0.0, "end": 2.5, "text": " Bonjour "},
+                {"start": 2.5, "end": 5.0, "text": "à tous."},
+                {"start": 5.0, "end": 6.0, "text": "   "},  # Tranche vide : ignorée.
+            ],
+        )
         client = MagicMock()
         client.audio.transcriptions.create = AsyncMock(return_value=transcription)
 
@@ -75,10 +82,33 @@ class TestTranscription:
             patch.object(audio_service, "_get_client", return_value=client),
             patch("builtins.open", MagicMock()),
         ):
-            assert await transcribe_file("/tmp/audio.m4a") == "Bonjour à tous."
+            text, segments = await transcribe_file("/tmp/audio.m4a")
+
+        assert text == "Bonjour à tous."
+        assert segments is not None
+        assert len(segments) == 2
+        assert segments[0].start == 0.0
+        assert segments[0].text == "Bonjour"
+        # Le format verbose est bien demandé à l'API.
+        assert (
+            client.audio.transcriptions.create.call_args.kwargs["response_format"] == "verbose_json"
+        )
+
+    async def test_transcription_sans_tranches(self):
+        """Vérifie le repli texte seul quand la réponse n'expose pas de segments."""
+        transcription = MagicMock(text="Bonjour.", segments=None)
+        client = MagicMock()
+        client.audio.transcriptions.create = AsyncMock(return_value=transcription)
+
+        with (
+            patch.object(audio_service.settings, "GROQ_API_KEY", "test-key"),
+            patch.object(audio_service, "_get_client", return_value=client),
+            patch("builtins.open", MagicMock()),
+        ):
+            assert await transcribe_file("/tmp/audio.m4a") == ("Bonjour.", None)
 
     async def test_echec_api_retourne_none(self):
-        """Vérifie le repli None lorsque l'API Whisper échoue."""
+        """Vérifie le repli (None, None) lorsque l'API Whisper échoue."""
         client = MagicMock()
         client.audio.transcriptions.create = AsyncMock(side_effect=RuntimeError("panne"))
 
@@ -87,7 +117,7 @@ class TestTranscription:
             patch.object(audio_service, "_get_client", return_value=client),
             patch("builtins.open", MagicMock()),
         ):
-            assert await transcribe_file("/tmp/audio.m4a") is None
+            assert await transcribe_file("/tmp/audio.m4a") == (None, None)
 
 
 @pytest.mark.unit
@@ -157,9 +187,9 @@ class TestReconnaissanceMusicale:
 class TestAnalyzeAudio:
     """Tests de l'orchestration complète (transcription + musique en parallèle)."""
 
-    async def test_sans_aucune_cle_retourne_none_none(self):
+    async def test_sans_aucune_cle_retourne_triple_none(self):
         """Vérifie le court-circuit complet quand ni Groq ni AudD ne sont configurés."""
-        assert await analyze_audio("/tmp/video.mp4") == (None, None)
+        assert await analyze_audio("/tmp/video.mp4") == (None, None, None)
 
     async def test_orchestration_parallele(self):
         """Vérifie l'extraction double (complète + extrait) et le nettoyage final."""
@@ -169,13 +199,16 @@ class TestAnalyzeAudio:
             patch.object(
                 audio_service, "extract_audio", side_effect=["/tmp/full.m4a", "/tmp/court.m4a"]
             ) as extract_mock,
-            patch.object(audio_service, "transcribe_file", new=AsyncMock(return_value="Bonjour.")),
+            patch.object(
+                audio_service, "transcribe_file", new=AsyncMock(return_value=("Bonjour.", None))
+            ),
             patch.object(audio_service, "recognize_music_file", new=AsyncMock(return_value=None)),
             patch.object(audio_service, "_cleanup") as cleanup_mock,
         ):
-            transcript, music = await analyze_audio("/tmp/video.mp4")
+            transcript, segments, music = await analyze_audio("/tmp/video.mp4")
 
         assert transcript == "Bonjour."
+        assert segments is None
         assert music is None
         # Deux extractions (piste complète + extrait court) et nettoyage des deux fichiers.
         assert extract_mock.call_count == 2

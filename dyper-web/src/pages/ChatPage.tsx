@@ -18,6 +18,7 @@ import {
   validateFile,
   VIDEO_MAX_DURATION_S,
 } from '../utils/fileHelpers'
+import { isVideoPlatformUrl } from '../utils/videoUrl'
 
 export function ChatPage() {
   const { t } = useI18n()
@@ -79,7 +80,7 @@ export function ChatPage() {
     const check = validateFile(file)
     if (!check.valid) {
       replaceAttachment(null)
-      setAttachmentError(t(check.reason === 'videoSize' ? 'input.videoTooLarge' : 'input.fileError'))
+      setAttachmentError(check.reason === 'videoSize' ? t('input.videoTooLarge') : t('input.fileError'))
       return
     }
 
@@ -121,9 +122,14 @@ export function ChatPage() {
         url: current.previewUrl,
         isVideo: current.isVideo,
         name: current.file.name,
+        durationS: current.durationS ?? null,
       })
       setAttachment(null)
     } else {
+      if (current?.kind === 'url' && isVideoPlatformUrl(current.url)) {
+        // Lien YouTube/Twitch : pas d'aperçu local, mais l'indicateur sait que c'est long.
+        setAnalyzingPreview({ url: null, isVideo: true, name: current.url, durationS: null })
+      }
       replaceAttachment(null)
     }
     await thread.send(text, current)
@@ -154,6 +160,8 @@ export function ChatPage() {
   return (
     <div className="flex h-full flex-col">
       {showHero ? (
+        // Mode héros : le composer n'est pas rendu — le héros absorbe toutes les entrées
+        // (fichier, URL, texte libre, question optionnelle).
         <NewConversationHero
           attachment={attachment}
           checking={checking}
@@ -165,36 +173,38 @@ export function ChatPage() {
             replaceAttachment(null)
             setAttachmentError(null)
           }}
-          onAnalyze={() => void handleSend('')}
+          onSubmit={(text) => void handleSend(text)}
         />
       ) : (
-        <ChatThread
-          messages={thread.messages}
-          loading={thread.loading}
-          sending={thread.sending}
-          streaming={thread.streaming}
-          streamingText={thread.streamingText}
-          analyzingPreview={analyzingPreview}
-          uploadPct={thread.uploadPct}
-          onRetry={() => void thread.retry()}
-          onDropFile={(file) => void attachFile(file)}
-        />
+        <>
+          <ChatThread
+            messages={thread.messages}
+            loading={thread.loading}
+            sending={thread.sending}
+            streaming={thread.streaming}
+            streamingText={thread.streamingText}
+            analyzingPreview={analyzingPreview}
+            uploadPct={thread.uploadPct}
+            onRetry={() => void thread.retry()}
+            onDropFile={(file) => void attachFile(file)}
+          />
+          <Composer
+            disabled={thread.sending || thread.loading}
+            streaming={thread.streaming}
+            attachment={attachment}
+            attachmentChecking={checking}
+            attachmentError={attachmentError}
+            onAttachFile={(file) => void attachFile(file)}
+            onAttachUrl={attachUrl}
+            onRemoveAttachment={() => {
+              replaceAttachment(null)
+              setAttachmentError(null)
+            }}
+            onSend={(text) => void handleSend(text)}
+            onStop={thread.stopStreaming}
+          />
+        </>
       )}
-      <Composer
-        disabled={thread.sending || thread.loading}
-        streaming={thread.streaming}
-        attachment={showHero ? null : attachment}
-        attachmentChecking={checking}
-        attachmentError={showHero ? null : attachmentError}
-        onAttachFile={(file) => void attachFile(file)}
-        onAttachUrl={attachUrl}
-        onRemoveAttachment={() => {
-          replaceAttachment(null)
-          setAttachmentError(null)
-        }}
-        onSend={(text) => void handleSend(text)}
-        onStop={thread.stopStreaming}
-      />
     </div>
   )
 }

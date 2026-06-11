@@ -118,7 +118,7 @@ fois avec internet** : YOLO-World (~400 Mo) se télécharge automatiquement au p
 | `YOLO_CONF_THRESHOLD` | `0.25` | Seuil de confiance minimum |
 | `GROQ_API_KEY` | — | **Compréhension multimodale** : description riche par modèle vision (Llama 4 Scout) + transcription audio des vidéos (Whisper). Vide : repli sur la description locale |
 | `AUDD_API_TOKEN` | — | **Reconnaissance musicale** des vidéos (type Shazam, jeton gratuit sur audd.io). Vide : désactivée |
-| `VIDEO_MAX_DURATION_S` / `VIDEO_SAMPLE_FPS` / `VIDEO_MAX_FRAMES` | `300` / `1` / `60` | Garde de durée et échantillonnage vidéo |
+| `VIDEO_MAX_DURATION_S` / `VIDEO_SAMPLE_FPS` / `VIDEO_MAX_FRAMES` | `300` / `3` / `900` | Garde de durée (5 min) et échantillonnage à cadence pleine sur toute la durée admise |
 
 ### dyper-api — `.env`
 | Variable | Défaut | Description |

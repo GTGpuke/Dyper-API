@@ -69,6 +69,30 @@ class MusicInfo(BaseModel):
     album: str | None = Field(default=None, description="Album, si connu.")
 
 
+class TranscriptSegment(BaseModel):
+    """Tranche horodatée de la transcription audio (alignement temporel)."""
+
+    start: float = Field(..., ge=0.0, description="Début de la tranche (secondes).")
+    end: float = Field(..., ge=0.0, description="Fin de la tranche (secondes).")
+    text: str = Field(..., description="Texte transcrit sur cette tranche.")
+
+
+class Chapter(BaseModel):
+    """Chapitre d'analyse vidéo : ce qu'on voit et ce qu'on entend sur un intervalle."""
+
+    tStart: float = Field(..., ge=0.0, description="Début du chapitre (secondes).")
+    tEnd: float = Field(..., ge=0.0, description="Fin du chapitre (secondes).")
+    description: str | None = Field(
+        default=None, description="Description visuelle courte du chapitre."
+    )
+    elements: list[str] = Field(
+        default_factory=list, description="Éléments visibles identifiés sur ce chapitre."
+    )
+    transcript: str | None = Field(
+        default=None, description="Tranche de transcription audio du chapitre."
+    )
+
+
 class ProcessResponse(BaseModel):
     """Réponse complète du pipeline de traitement dyper-ai."""
 
@@ -103,4 +127,11 @@ class ProcessResponse(BaseModel):
     videoBase64: str | None = Field(
         default=None,
         description="Vidéo téléchargée depuis une URL (base64) — renvoyée pour stockage.",
+    )
+    transcriptSegments: list[TranscriptSegment] | None = Field(
+        default=None, description="Transcription horodatée par tranches (vidéos)."
+    )
+    chapters: list[Chapter] | None = Field(
+        default=None,
+        description="Chapitres d'analyse alignés vision/audio/détection (vidéos).",
     )

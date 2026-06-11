@@ -1,5 +1,6 @@
 // Coquille visuelle des pages d'authentification (logo + carte centrée).
 import type { ReactNode } from 'react'
+import logo from '../../assets/dyper-logo.svg'
 
 export function AuthShell({
   title,
@@ -16,12 +17,7 @@ export function AuthShell({
     <div className="grid min-h-screen place-items-center bg-ink-50 px-4 dark:bg-ink-900">
       <div className="w-full max-w-sm">
         <div className="mb-8 flex flex-col items-center gap-3 text-center">
-          <div className="grid h-12 w-12 place-items-center rounded-2xl bg-brand-600 text-white">
-            <svg className="h-6 w-6" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-              <circle cx="11" cy="11" r="7" />
-              <path d="M21 21l-4-4" strokeLinecap="round" />
-            </svg>
-          </div>
+          <img src={logo} alt="Dyper AI" className="h-12 w-12 rounded-2xl object-contain" />
           <div>
             <h1 className="text-xl font-bold tracking-tight text-ink-900 dark:text-ink-50">{title}</h1>
             <p className="mt-1 text-sm text-ink-500 dark:text-ink-400">{subtitle}</p>

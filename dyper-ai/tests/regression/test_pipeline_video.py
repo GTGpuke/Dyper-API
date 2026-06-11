@@ -44,11 +44,11 @@ class TestPipelineVideo:
 
     def test_extract_frames_retourne_images_et_timestamps(self):
         """Vérifie que extract_frames retourne des couples (image PIL, horodatage croissant)."""
-        # 50 frames à 10 fps → durée 5 s → ~5 images à la cadence 1/s.
+        # 50 frames à 10 fps → durée 5 s → ~15 images à la cadence 3/s.
         frames = _run_extract(_mock_cap(total_frames=50, fps=10))
         assert isinstance(frames, list)
         assert all(isinstance(f, Image.Image) for f, _t in frames)
-        assert len(frames) == 5
+        assert len(frames) == 15
         timestamps = [t for _f, t in frames]
         assert timestamps == sorted(timestamps)
         assert timestamps[0] == 0.0
@@ -60,15 +60,15 @@ class TestPipelineVideo:
         frames = _run_extract(_mock_cap(total_frames=0, fps=30))
         assert frames == []
 
-    def test_cadence_un_par_seconde_video_courte(self):
-        """Vérifie ~1 image/seconde sur une vidéo courte (40 frames à 10 fps → 4 s → 4 images)."""
+    def test_cadence_trois_par_seconde_video_courte(self):
+        """Vérifie ~3 images/seconde sur une vidéo courte (40 frames à 10 fps → 4 s → 12 images)."""
         frames = _run_extract(_mock_cap(total_frames=40, fps=10))
-        assert len(frames) == 4
+        assert len(frames) == 12
 
-    def test_plafond_60_images_video_longue(self):
-        """Vérifie le plafond : 3000 frames à 30 fps → 100 s → cadence 100 mais plafonné à 60."""
-        frames = _run_extract(_mock_cap(total_frames=3000, fps=30))
-        assert len(frames) == 60
+    def test_cadence_pleine_sur_duree_maximale(self):
+        """Vérifie qu'une vidéo de 5 min pile garde la cadence pleine (9000 à 30 fps → 900)."""
+        frames = _run_extract(_mock_cap(total_frames=9000, fps=30))
+        assert len(frames) == 900
 
     def test_duree_trop_longue_leve_erreur(self):
         """Vérifie qu'une vidéo > 5 min lève VideoTooLongError (9000 frames à 25 fps = 360 s)."""
@@ -78,9 +78,9 @@ class TestPipelineVideo:
             _run_extract(_mock_cap(total_frames=9000, fps=25))
 
     def test_fps_invalide_utilise_repli(self):
-        """Vérifie le repli FPS (fps<=0) : 50 frames, repli 25 fps → 2 s → 2 images."""
+        """Vérifie le repli FPS (fps<=0) : 50 frames, repli 25 fps → 2 s → 6 images."""
         frames = _run_extract(_mock_cap(total_frames=50, fps=0))
-        assert len(frames) == 2
+        assert len(frames) == 6
 
     def test_base64_invalide_leve_value_error(self):
         """Vérifie qu'un base64 invalide lève une ValueError (mappée en 422 par la route)."""
@@ -128,7 +128,7 @@ class TestPipelineVideo:
         from unittest.mock import AsyncMock
 
         import numpy as np
-        from app.schemas.response import MusicInfo
+        from app.schemas.response import MusicInfo, TranscriptSegment
         from app.services.vision_llm import VisionAnalysis
 
         fake_frames = [(Image.fromarray(np.ones((40, 60, 3), dtype="uint8") * 100), 0.0)]
@@ -143,7 +143,13 @@ class TestPipelineVideo:
             patch("app.services.video.extract_frames_from_path", return_value=fake_frames),
             patch(
                 "app.routes.process.audio_service.analyze_audio",
-                new=AsyncMock(return_value=("Bonjour à tous.", music)),
+                new=AsyncMock(
+                    return_value=(
+                        "Bonjour à tous.",
+                        [TranscriptSegment(start=0.0, end=2.0, text="Bonjour à tous.")],
+                        music,
+                    )
+                ),
             ),
             patch(
                 "app.routes.process.vision_llm.describe_and_extract",
@@ -166,10 +172,74 @@ class TestPipelineVideo:
         # L'audio est analysé AVANT la vision et lui est transmis (transcript + musique).
         assert vision_mock.call_args.kwargs["music_summary"] == "Daft Punk — Around the World"
         assert vision_mock.call_args.kwargs["transcript"] == "Bonjour à tous."
+        # Transcription horodatée présente ; chapitres absents (vision indisponible sans clé,
+        # la fonction describe_and_extract est mockée mais is_available reste False).
+        assert data["transcriptSegments"] == [{"start": 0.0, "end": 2.0, "text": "Bonjour à tous."}]
+        assert data["chapters"] is None
         # Tracking à vocabulaire ouvert : labels alignés sur la vision, piste stable.
         assert data["visualization"]["objects"][0]["label"] == "elephant"
         assert data["frames"][0]["objects"][0]["trackId"] == 1
         assert data["visualization"]["scene"]["label"] == "enclos de zoo"
+
+    def test_route_video_chapitres_et_union_du_vocabulaire(self, client, mock_world):
+        """Vérifie les chapitres alignés audio/vision et l'union des vocabulaires."""
+        from unittest.mock import AsyncMock
+
+        import numpy as np
+        from app.schemas.response import TranscriptSegment
+        from app.services.vision_llm import VisionAnalysis
+
+        # 50 frames sur 25 s → 2 fenêtres de chapitres (20 s par défaut).
+        fake_frames = [
+            (Image.fromarray(np.ones((40, 60, 3), dtype="uint8") * 100), round(i * 0.5, 2))
+            for i in range(50)
+        ]
+        global_vision = VisionAnalysis(
+            description="Compte rendu global.", elements=["elephant", "man"]
+        )
+        segment_vision = VisionAnalysis(
+            description="Un homme parle devant l'enclos.", elements=["man", "metal fence"]
+        )
+        segments = [TranscriptSegment(start=0.0, end=10.0, text="Bonjour à tous.")]
+        with (
+            patch("app.services.video.extract_frames_from_path", return_value=fake_frames),
+            patch(
+                "app.routes.process.audio_service.analyze_audio",
+                new=AsyncMock(return_value=("Bonjour à tous.", segments, None)),
+            ),
+            patch("app.routes.process.vision_llm.is_available", return_value=True),
+            patch(
+                "app.routes.process.vision_llm.describe_and_extract",
+                new=AsyncMock(return_value=global_vision),
+            ),
+            patch(
+                "app.routes.process.vision_llm.describe_segment",
+                new=AsyncMock(return_value=segment_vision),
+            ),
+        ):
+            res = client.post(
+                "/process",
+                json={
+                    "requestId": "vid-chapitres",
+                    "type": "video",
+                    "videoBase64": base64.b64encode(b"x").decode(),
+                },
+            )
+        assert res.status_code == 200
+        data = res.json()
+
+        # Deux chapitres : [0-20] avec transcription, [20-24.5] sans.
+        chapters = data["chapters"]
+        assert len(chapters) == 2
+        assert chapters[0]["tStart"] == 0.0
+        assert chapters[0]["description"] == "Un homme parle devant l'enclos."
+        assert chapters[0]["elements"] == ["man", "metal fence"]
+        assert chapters[0]["transcript"] == "Bonjour à tous."
+        assert chapters[1]["transcript"] is None
+
+        # Union des vocabulaires (global + chapitres, dédupliquée) transmise au détecteur.
+        called_vocab = mock_world.detect_classes.call_args.args[1]
+        assert called_vocab == ["elephant", "man", "metal fence"]
 
     def test_route_video_par_url_plateforme(self, client, tmp_path):
         """Vérifie l'analyse par URL : téléchargement mocké, écho videoBase64 pour stockage."""

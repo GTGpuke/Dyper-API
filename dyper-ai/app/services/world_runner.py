@@ -90,11 +90,18 @@ class WorldRunner:
             return self._run(image, persist)
 
     def _run(self, image: Image.Image, persist: bool | None) -> Any:
-        """Exécute la prédiction ou le tracking et retourne les résultats bruts."""
+        """Exécute la prédiction ou le tracking et retourne les résultats bruts.
+
+        La résolution d'inférence est forcée à `WORLD_IMGSZ` (1280 par défaut) : la valeur
+        implicite d'ultralytics (640) dégraderait la détection des petits objets.
+        """
         assert self.model is not None  # Garanti par detect_classes.
         conf = settings.WORLD_CONF_THRESHOLD
+        imgsz = settings.WORLD_IMGSZ
         if persist is None:
-            results = self.model.predict(source=image, conf=conf, verbose=False)
+            results = self.model.predict(source=image, conf=conf, imgsz=imgsz, verbose=False)
         else:
-            results = self.model.track(source=image, conf=conf, persist=persist, verbose=False)
+            results = self.model.track(
+                source=image, conf=conf, imgsz=imgsz, persist=persist, verbose=False
+            )
         return results[0]

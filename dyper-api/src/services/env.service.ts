@@ -46,8 +46,8 @@ export const env = {
   AI_SERVICE_URL: required('AI_SERVICE_URL'),
   AI_INTERNAL_KEY: required('AI_INTERNAL_KEY'),
   AI_REQUEST_TIMEOUT_MS: Number.parseInt(optional('AI_REQUEST_TIMEOUT_MS', '30000'), 10),
-  // Timeout dédié au traitement vidéo (plus long : analyse de nombreuses images par YOLO).
-  AI_VIDEO_TIMEOUT_MS: Number.parseInt(optional('AI_VIDEO_TIMEOUT_MS', '180000'), 10),
+  // Timeout dédié au traitement vidéo (long : ~900 frames trackées en 1280px + vision par chapitres).
+  AI_VIDEO_TIMEOUT_MS: Number.parseInt(optional('AI_VIDEO_TIMEOUT_MS', '900000'), 10),
 
   // Upload de fichiers — taille max image, et taille max vidéo (5 min ≫ 10 Mo).
   MAX_FILE_SIZE_MB: Number.parseInt(optional('MAX_FILE_SIZE_MB', '10'), 10),

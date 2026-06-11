@@ -1,5 +1,6 @@
 """Route principale POST /process du service dyper-ai."""
 
+import asyncio
 import base64
 import os
 import time
@@ -14,10 +15,12 @@ from PIL import Image
 from app.config import settings
 from app.schemas.request import ProcessRequest
 from app.schemas.response import (
+    Chapter,
     FrameDetections,
     ProcessResponse,
     Scene,
     TimelineEntry,
+    TranscriptSegment,
     Visualization,
 )
 from app.services import audio as audio_service
@@ -61,6 +64,40 @@ def fill_track_gaps(frames: list[FrameDetections], max_gap: int) -> list[Timelin
         )
         for index, frame in enumerate(frames)
     ]
+
+
+def _transcript_slice(
+    segments: list[TranscriptSegment] | None, t_start: float, t_end: float
+) -> str | None:
+    """Concatène les tranches de transcription qui chevauchent l'intervalle [t_start, t_end)."""
+    if not segments:
+        return None
+    parts = [s.text for s in segments if s.end > t_start and s.start < t_end]
+    return " ".join(parts) or None
+
+
+def _build_chapter_windows(
+    frames: list[tuple[Image.Image, float]],
+) -> list[tuple[float, float, list[Image.Image]]]:
+    """Découpe la vidéo en fenêtres de chapitres avec 1-2 frames clés chacune.
+
+    Chaque fenêtre couvre `VIDEO_SEGMENT_S` secondes ; ses frames clés sont piochées parmi
+    les frames déjà extraites (milieu, et quart pour les fenêtres riches en frames).
+    """
+    duration = frames[-1][1]
+    windows: list[tuple[float, float, list[Image.Image]]] = []
+    t_start = 0.0
+    while t_start <= duration:
+        t_end = min(t_start + settings.VIDEO_SEGMENT_S, duration + 0.01)
+        in_window = [frame for frame, t in frames if t_start <= t < t_end]
+        if in_window:
+            # Frame du milieu, plus celle du premier quart si la fenêtre est dense.
+            keys = [in_window[len(in_window) // 2]]
+            if len(in_window) >= 8:
+                keys.insert(0, in_window[len(in_window) // 4])
+            windows.append((round(t_start, 2), round(min(t_end, duration), 2), keys))
+        t_start += settings.VIDEO_SEGMENT_S
+    return windows
 
 
 def _apply_vision(result: ProcessResponse, vision: vision_llm.VisionAnalysis | None) -> None:
@@ -237,28 +274,69 @@ async def process(
                     for i in range(n_keyframes)
                 }
 
-                # Analyse de la piste audio d'abord : transcription + musique (parallèles),
-                # transmises au modèle vision pour un compte rendu complet.
-                transcript, music = await audio_service.analyze_audio(tmp_path)
+                # Analyse de la piste audio d'abord : transcription horodatée + musique,
+                # transmises au modèle vision (global et par chapitre).
+                transcript, transcript_segments, music = await audio_service.analyze_audio(tmp_path)
 
-                # Pipeline « décrire puis ancrer » : la vision analyse les images clés et
-                # fournit le vocabulaire du détecteur. Repli COCO intégral sinon.
+                # Pipeline « décrire puis ancrer » chapitré : compte rendu global + analyse
+                # vision par segment temporel (appels parallèles, semaphore anti rate-limit).
                 vision_frames = [
                     resize_for_model(frames[i][0], settings.IMAGE_MAX_DIM)
                     for i in sorted(keyframe_indices)
                 ]
                 world = getattr(request.app.state, "world", None)
-                vision = await vision_llm.describe_and_extract(
-                    vision_frames,
-                    body.lang,
-                    body.prompt,
-                    transcript=transcript,
-                    music_summary=f"{music.artist} — {music.title}" if music else None,
-                    is_video=True,
+                # Parallélisme volontairement bas : le palier gratuit Groq est limité en
+                # tokens/minute — les retries de vision_llm absorbent les pics restants.
+                windows = _build_chapter_windows(frames) if vision_llm.is_available() else []
+                semaphore = asyncio.Semaphore(2)
+
+                async def _segment_call(
+                    images: list[Image.Image], t_start: float, t_end: float
+                ) -> vision_llm.VisionAnalysis | None:
+                    async with semaphore:
+                        return await vision_llm.describe_segment(
+                            images,
+                            body.lang,
+                            _transcript_slice(transcript_segments, t_start, t_end),
+                        )
+
+                gathered = await asyncio.gather(
+                    vision_llm.describe_and_extract(
+                        vision_frames,
+                        body.lang,
+                        body.prompt,
+                        transcript=transcript,
+                        music_summary=f"{music.artist} — {music.title}" if music else None,
+                        is_video=True,
+                    ),
+                    *(_segment_call(images, t0, t1) for t0, t1, images in windows),
                 )
-                use_world = bool(
-                    vision and vision.elements and world is not None and world.is_ready()
-                )
+                vision = gathered[0]
+                segment_analyses = list(gathered[1:])
+
+                # Chapitres : ce qu'on voit et ce qu'on entend, par intervalle de temps.
+                chapters = [
+                    Chapter(
+                        tStart=t0,
+                        tEnd=t1,
+                        description=analysis.description if analysis else None,
+                        elements=analysis.elements if analysis else [],
+                        transcript=_transcript_slice(transcript_segments, t0, t1),
+                    )
+                    for (t0, t1, _images), analysis in zip(windows, segment_analyses, strict=True)
+                ] or None
+
+                # Vocabulaire de détection = UNION (global + chapitres) : un seul set_classes
+                # pour toute la vidéo (tracking stable) et couverture des éléments qui
+                # apparaissent à n'importe quel moment.
+                vocabulary: list[str] = list(vision.elements) if vision else []
+                for analysis in segment_analyses:
+                    if analysis:
+                        for element in analysis.elements:
+                            if element not in vocabulary:
+                                vocabulary.append(element)
+                vocabulary = vocabulary[: settings.VIDEO_VOCAB_MAX]
+                use_world = bool(vocabulary) and world is not None and world.is_ready()
 
                 frame_responses: list[ProcessResponse] = []
                 frame_detections: list[FrameDetections] = []
@@ -269,9 +347,9 @@ async def process(
                         first_resized = resized
                     # Tracking : IDs de piste stables entre frames (persist=False réinitialise
                     # le tracker au début de chaque nouvelle vidéo) — vocabulaire ouvert si la
-                    # vision a fourni les éléments, classes COCO sinon.
-                    if use_world and vision and world:
-                        tracked = world.detect_classes(resized, vision.elements, persist=index > 0)
+                    # vision a fourni des éléments, classes COCO sinon.
+                    if use_world and world:
+                        tracked = world.detect_classes(resized, vocabulary, persist=index > 0)
                     else:
                         tracked = runner.track(resized, persist=index > 0)
                     frame_result = detect(
@@ -305,6 +383,8 @@ async def process(
             result.timeline = timeline
             result.frames = frame_detections
             result.audioTranscript = transcript
+            result.transcriptSegments = transcript_segments
+            result.chapters = chapters
             result.music = music
             result.videoBase64 = downloaded_b64
             # Miniature et référentiel des boîtes : première frame analysée.

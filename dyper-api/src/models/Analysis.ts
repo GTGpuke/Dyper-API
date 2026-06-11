@@ -2,10 +2,12 @@ import { DataTypes, Model, type Optional } from 'sequelize';
 import sequelize from '../services/db/database.service';
 import type {
   AnalyzeType,
+  Chapter,
   DetectedObject,
   FrameDetections,
   MusicInfo,
   TimelineEntry,
+  TranscriptSegment,
 } from '../types';
 
 // Historique d'une analyse traitée par la passerelle (une ligne par requête /api/analyze*).
@@ -33,6 +35,8 @@ interface AnalysisAttributes {
   video_path: string | null;
   frame_detections: FrameDetections[] | null;
   music: MusicInfo | null;
+  transcript_segments: TranscriptSegment[] | null;
+  chapters: Chapter[] | null;
   created_at: Date;
 }
 
@@ -50,6 +54,8 @@ type AnalysisCreationAttributes = Optional<
   | 'video_path'
   | 'frame_detections'
   | 'music'
+  | 'transcript_segments'
+  | 'chapters'
   | 'created_at'
 >;
 
@@ -80,6 +86,8 @@ class Analysis
   declare video_path: string | null;
   declare frame_detections: FrameDetections[] | null;
   declare music: MusicInfo | null;
+  declare transcript_segments: TranscriptSegment[] | null;
+  declare chapters: Chapter[] | null;
   declare created_at: Date;
 }
 
@@ -108,6 +116,8 @@ Analysis.init(
     video_path: { type: DataTypes.STRING, allowNull: true, defaultValue: null },
     frame_detections: { type: DataTypes.JSON, allowNull: true, defaultValue: null },
     music: { type: DataTypes.JSON, allowNull: true, defaultValue: null },
+    transcript_segments: { type: DataTypes.JSON, allowNull: true, defaultValue: null },
+    chapters: { type: DataTypes.JSON, allowNull: true, defaultValue: null },
     created_at: { type: DataTypes.DATE, allowNull: false, defaultValue: DataTypes.NOW },
   },
   {

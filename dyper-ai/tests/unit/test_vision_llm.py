@@ -115,3 +115,44 @@ class TestDescribeAndExtract:
             patch.object(vision_llm, "_get_client", return_value=client),
         ):
             assert await describe_and_extract([_image()], "fr", None) is None
+
+    async def test_limite_de_debit_reessayee(self):
+        """Vérifie le retry sur 429 avec le délai suggéré par l'API, puis le succès."""
+        completion = MagicMock()
+        completion.choices = [MagicMock(message=MagicMock(content="Compte rendu.\nELEMENTS: rock"))]
+        client = MagicMock()
+        client.chat.completions.create = AsyncMock(
+            side_effect=[
+                RuntimeError("Error code: 429 - rate_limit_exceeded. Please try again in 1.2s."),
+                RuntimeError("Error code: 429 - rate_limit_exceeded. Please try again in 0.4s."),
+                completion,
+            ]
+        )
+
+        with (
+            patch.object(vision_llm.settings, "GROQ_API_KEY", "test-key"),
+            patch.object(vision_llm, "_get_client", return_value=client),
+            patch.object(vision_llm.asyncio, "sleep", new=AsyncMock()) as sleep_mock,
+        ):
+            analysis = await describe_and_extract([_image()], "fr", None)
+
+        assert analysis is not None
+        assert analysis.elements == ["rock"]
+        assert client.chat.completions.create.call_count == 3
+        # Le délai suggéré par l'API (+ marge) est respecté.
+        assert sleep_mock.call_args_list[0].args[0] == 1.7
+
+    async def test_limite_de_debit_epuisee_retourne_none(self):
+        """Vérifie le repli None quand toutes les tentatives sont limitées (429 persistant)."""
+        client = MagicMock()
+        client.chat.completions.create = AsyncMock(
+            side_effect=RuntimeError("rate_limit_exceeded, try again in 0.1s")
+        )
+
+        with (
+            patch.object(vision_llm.settings, "GROQ_API_KEY", "test-key"),
+            patch.object(vision_llm, "_get_client", return_value=client),
+            patch.object(vision_llm.asyncio, "sleep", new=AsyncMock()),
+        ):
+            assert await describe_and_extract([_image()], "fr", None) is None
+        assert client.chat.completions.create.call_count == 4
