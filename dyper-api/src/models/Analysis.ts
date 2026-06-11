@@ -1,6 +1,12 @@
 import { DataTypes, Model, type Optional } from 'sequelize';
 import sequelize from '../services/db/database.service';
-import type { AnalyzeType, DetectedObject, TimelineEntry } from '../types';
+import type {
+  AnalyzeType,
+  DetectedObject,
+  FrameDetections,
+  MusicInfo,
+  TimelineEntry,
+} from '../types';
 
 // Historique d'une analyse traitée par la passerelle (une ligne par requête /api/analyze*).
 interface AnalysisAttributes {
@@ -23,6 +29,10 @@ interface AnalysisAttributes {
   objects: DetectedObject[] | null;
   source_width: number | null;
   source_height: number | null;
+  audio_transcript: string | null;
+  video_path: string | null;
+  frame_detections: FrameDetections[] | null;
+  music: MusicInfo | null;
   created_at: Date;
 }
 
@@ -36,6 +46,10 @@ type AnalysisCreationAttributes = Optional<
   | 'objects'
   | 'source_width'
   | 'source_height'
+  | 'audio_transcript'
+  | 'video_path'
+  | 'frame_detections'
+  | 'music'
   | 'created_at'
 >;
 
@@ -62,6 +76,10 @@ class Analysis
   declare objects: DetectedObject[] | null;
   declare source_width: number | null;
   declare source_height: number | null;
+  declare audio_transcript: string | null;
+  declare video_path: string | null;
+  declare frame_detections: FrameDetections[] | null;
+  declare music: MusicInfo | null;
   declare created_at: Date;
 }
 
@@ -86,6 +104,10 @@ Analysis.init(
     objects: { type: DataTypes.JSON, allowNull: true, defaultValue: null },
     source_width: { type: DataTypes.INTEGER, allowNull: true, defaultValue: null },
     source_height: { type: DataTypes.INTEGER, allowNull: true, defaultValue: null },
+    audio_transcript: { type: DataTypes.TEXT, allowNull: true, defaultValue: null },
+    video_path: { type: DataTypes.STRING, allowNull: true, defaultValue: null },
+    frame_detections: { type: DataTypes.JSON, allowNull: true, defaultValue: null },
+    music: { type: DataTypes.JSON, allowNull: true, defaultValue: null },
     created_at: { type: DataTypes.DATE, allowNull: false, defaultValue: DataTypes.NOW },
   },
   {

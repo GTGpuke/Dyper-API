@@ -6,3 +6,12 @@ pillow==10.4.0
 opencv-python-headless==4.9.0.80
 ultralytics>=8.3.0
 python-dotenv==1.0.0
+groq==1.4.0
+imageio-ffmpeg==0.6.0
+# Requis par le tracking d'objets ultralytics (ByteTrack) — évite l'AutoUpdate à chaud.
+lap==0.5.13
+# Téléchargement des vidéos YouTube/Twitch — épinglage souple (les sites évoluent vite).
+# Version installée au moment de l'intégration : 2026.6.9.
+yt-dlp>=2026.6.9
+# Encodeur texte CLIP requis par YOLO-World (set_classes) — évite l'AutoUpdate à chaud.
+clip @ git+https://github.com/ultralytics/CLIP.git

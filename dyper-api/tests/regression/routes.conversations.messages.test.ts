@@ -39,6 +39,16 @@ function fakeAi(opts: ProcessOptions): ProcessAiResponse {
     ],
     sourceWidth: 640,
     sourceHeight: 480,
+    audioTranscript: 'Bonjour à tous.',
+    frames: [
+      {
+        t: 0,
+        objects: [
+          { label: 'person', confidence: 0.9, boundingBox: { x: 1, y: 2, w: 3, h: 4 }, trackId: 1 },
+        ],
+      },
+    ],
+    music: { artist: 'Daft Punk', title: 'Around the World', album: null },
   };
 }
 
@@ -99,6 +109,12 @@ describe('Envoi de messages (/api/conversations/:id/messages)', () => {
     expect(assistantMsg.analysis.timeline).toHaveLength(2);
     expect(assistantMsg.analysis.sourceWidth).toBe(640);
     expect(assistantMsg.analysis.thumbnailUrl).toMatch(/^\/api\/media\//);
+    // Champs du lecteur annoté et de la reconnaissance musicale, inlinés dans la carte.
+    expect(assistantMsg.analysis.frames).toHaveLength(1);
+    expect(assistantMsg.analysis.frames[0].objects[0].trackId).toBe(1);
+    expect(assistantMsg.analysis.music.title).toBe('Around the World');
+    // Image (pas de vidéo conservée) : videoUrl absent.
+    expect(assistantMsg.analysis.videoUrl).toBeNull();
 
     // La miniature est réellement écrite dans MEDIA_DIR.
     const row = await Analysis.findOne({
@@ -164,10 +180,13 @@ describe('Envoi de messages (/api/conversations/:id/messages)', () => {
     const assistant = res.json().messages[1];
     expect(assistant.kind).toBe('text');
     expect(assistant.content).toContain('personne');
-    // Le contexte transmis à Groq provient de la ligne persistée (objets complets + timeline).
-    const context = chatSpy.mock.calls[0][0].context;
-    expect(context.visualization.objects).toHaveLength(2);
-    expect(context.timeline).toHaveLength(2);
+    // Le contexte transmis à Groq provient de la ligne persistée (objets complets, timeline,
+    // transcription), et la miniature est jointe : le modèle répond en voyant l'image.
+    const params = chatSpy.mock.calls[0][0];
+    expect(params.context.visualization.objects).toHaveLength(2);
+    expect(params.context.timeline).toHaveLength(2);
+    expect(params.context.audioTranscript).toBe('Bonjour à tous.');
+    expect(params.imageBase64).toBe(TINY_JPEG_B64);
   });
 
   it('URL invalide → 400, message vide → 400', async () => {
@@ -209,10 +228,79 @@ describe('Envoi de messages (/api/conversations/:id/messages)', () => {
     expect(messages[1].analysis).not.toBeNull();
   });
 
-  it('purge totale → conversations supprimées et miniatures effacées du disque', async () => {
+  it('lien YouTube → analyse vidéo par URL et stockage de la vidéo téléchargée', async () => {
+    const id = await newConversation();
+    // dyper-ai renvoie la vidéo téléchargée en base64 (flux URL de plateforme).
+    const ytBytes = Buffer.from('yt-mp4-bytes');
+    jest.restoreAllMocks();
+    const processSpy = jest.spyOn(aiService, 'process').mockImplementation(async (opts) => ({
+      ...fakeAi(opts),
+      videoBase64: ytBytes.toString('base64'),
+    }));
+
+    const res = await app.inject({
+      method: 'POST',
+      url: `/api/conversations/${id}/messages`,
+      headers: auth.headers,
+      payload: { url: 'https://www.youtube.com/watch?v=dQw4w9WgXcQ' },
+    });
+    expect(res.statusCode).toBe(201);
+
+    // La passerelle a routé l'URL vers l'analyse vidéo (videoUrl, pas imageUrl).
+    const opts = processSpy.mock.calls[0][0];
+    expect(opts.videoUrl).toBe('https://www.youtube.com/watch?v=dQw4w9WgXcQ');
+    expect(opts.imageUrl).toBeUndefined();
+
+    // La vidéo téléchargée est stockée et exposée au lecteur annoté.
+    const analysis = res.json().messages[1].analysis;
+    expect(analysis.type).toBe('video');
+    expect(analysis.videoUrl).toBe(`/api/media/${analysis.requestId}/video`);
+    const onDisk = path.join(process.env.MEDIA_DIR as string, `${analysis.requestId}.mp4`);
+    expect(fs.readFileSync(onDisk).equals(ytBytes)).toBe(true);
+  });
+
+  it("URL d'image classique → analyse image inchangée (régression)", async () => {
+    const id = await newConversation();
+    jest.restoreAllMocks();
+    const processSpy = jest
+      .spyOn(aiService, 'process')
+      .mockImplementation(async (opts) => fakeAi(opts));
+
+    const res = await app.inject({
+      method: 'POST',
+      url: `/api/conversations/${id}/messages`,
+      headers: auth.headers,
+      payload: { url: 'https://example.com/photo.jpg' },
+    });
+    expect(res.statusCode).toBe(201);
+    const opts = processSpy.mock.calls[0][0];
+    expect(opts.imageUrl).toBe('https://example.com/photo.jpg');
+    expect(opts.videoUrl).toBeUndefined();
+    expect(res.json().messages[1].analysis.type).toBe('image');
+  });
+
+  it('vidéo jointe → fichier conservé sur disque et videoUrl inliné', async () => {
     const id = await newConversation();
     const { payload, contentType } = buildMultipart({
-      file: { content: Buffer.from('img'), filename: 'purge.png', contentType: 'image/png' },
+      file: { content: Buffer.from('mp4-bytes'), filename: 'clip.mp4', contentType: 'video/mp4' },
+    });
+    const res = await app.inject({
+      method: 'POST',
+      url: `/api/conversations/${id}/messages`,
+      headers: { ...auth.headers, 'content-type': contentType },
+      payload,
+    });
+    expect(res.statusCode).toBe(201);
+    const analysis = res.json().messages[1].analysis;
+    expect(analysis.videoUrl).toBe(`/api/media/${analysis.requestId}/video`);
+    const onDisk = path.join(process.env.MEDIA_DIR as string, `${analysis.requestId}.mp4`);
+    expect(fs.existsSync(onDisk)).toBe(true);
+  });
+
+  it('purge totale → conversations supprimées, miniatures et vidéos effacées du disque', async () => {
+    const id = await newConversation();
+    const { payload, contentType } = buildMultipart({
+      file: { content: Buffer.from('mp4'), filename: 'purge.mp4', contentType: 'video/mp4' },
     });
     const sent = await app.inject({
       method: 'POST',
@@ -223,8 +311,10 @@ describe('Envoi de messages (/api/conversations/:id/messages)', () => {
     const row = await Analysis.findOne({
       where: { request_id: sent.json().messages[1].analysis.requestId },
     });
-    const onDisk = path.join(process.env.MEDIA_DIR as string, row?.thumbnail_path as string);
-    expect(fs.existsSync(onDisk)).toBe(true);
+    const thumbOnDisk = path.join(process.env.MEDIA_DIR as string, row?.thumbnail_path as string);
+    const videoOnDisk = path.join(process.env.MEDIA_DIR as string, row?.video_path as string);
+    expect(fs.existsSync(thumbOnDisk)).toBe(true);
+    expect(fs.existsSync(videoOnDisk)).toBe(true);
 
     const purge = await app.inject({
       method: 'DELETE',
@@ -234,13 +324,14 @@ describe('Envoi de messages (/api/conversations/:id/messages)', () => {
     });
     expect(purge.statusCode).toBe(200);
 
-    // Conversation supprimée, miniature effacée du disque.
+    // Conversation supprimée, miniature et vidéo effacées du disque.
     const after = await app.inject({
       method: 'GET',
       url: `/api/conversations/${id}`,
       headers: auth.headers,
     });
     expect(after.statusCode).toBe(404);
-    expect(fs.existsSync(onDisk)).toBe(false);
+    expect(fs.existsSync(thumbOnDisk)).toBe(false);
+    expect(fs.existsSync(videoOnDisk)).toBe(false);
   });
 });

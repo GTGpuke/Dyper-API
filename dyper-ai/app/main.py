@@ -6,6 +6,7 @@ from fastapi import FastAPI
 
 from app.config import settings
 from app.routes import health, process
+from app.services.world_runner import WorldRunner
 from app.services.yolo_runner import YoloRunner
 from app.utils.logger import get_logger
 
@@ -14,10 +15,10 @@ logger = get_logger(__name__)
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    """Charge le modèle YOLO au démarrage (une seule fois) et le libère à l'arrêt.
+    """Charge les modèles au démarrage (une seule fois) et les libère à l'arrêt.
 
-    En cas d'échec de chargement (modèle absent), l'erreur est journalisée puis propagée
-    afin d'empêcher le démarrage d'un service non fonctionnel (fail-fast).
+    YOLO (COCO) est obligatoire : un échec de chargement empêche le démarrage (fail-fast).
+    YOLO-World (vocabulaire ouvert) est best-effort : indisponible → repli COCO, jamais bloquant.
     """
     runner = YoloRunner()
     try:
@@ -31,6 +32,19 @@ async def lifespan(app: FastAPI):
         f"Modèle {runner.model_name} chargé avec succès "
         f"(seuil de confiance = {settings.YOLO_CONF_THRESHOLD})."
     )
+
+    # Détecteur à vocabulaire ouvert (téléchargement automatique au premier démarrage).
+    world_runner = WorldRunner()
+    world: WorldRunner | None
+    try:
+        world_runner.load()
+        logger.info(f"Modèle {world_runner.model_name} (vocabulaire ouvert) chargé avec succès.")
+        world = world_runner
+    except Exception as exc:
+        logger.warning(f"YOLO-World indisponible (repli sur les classes COCO) : {exc}")
+        world = None
+    app.state.world = world
+
     yield
     logger.info("Arrêt du service dyper-ai.")
 

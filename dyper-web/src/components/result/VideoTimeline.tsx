@@ -3,6 +3,7 @@
 // d'échantillonnage ferme le segment.
 import { useMemo, useState } from 'react'
 import { useI18n } from '../../contexts/I18nContext'
+import { cn } from '../../lib/cn'
 import type { TimelineEntry } from '../../types'
 import { formatTimecode } from '../../utils/formatters'
 
@@ -58,9 +59,12 @@ function buildTracks(timeline: TimelineEntry[]): { tracks: LabelTrack[]; total: 
 export function VideoTimeline({
   timeline,
   maxRows = DEFAULT_MAX_ROWS,
+  onSeek,
 }: {
   timeline: TimelineEntry[]
   maxRows?: number
+  /** Si fourni, les segments deviennent cliquables et sautent le lecteur à leur début. */
+  onSeek?: (time: number) => void
 }) {
   const { t } = useI18n()
   const [expanded, setExpanded] = useState(false)
@@ -78,20 +82,55 @@ export function VideoTimeline({
           <span className="w-24 shrink-0 truncate text-xs capitalize text-ink-600 dark:text-ink-300">
             {track.label}
           </span>
-          <div className="relative h-2.5 flex-1 rounded-full bg-ink-100 dark:bg-ink-800">
-            {track.segments.map((segment) => (
-              <span
-                key={`${segment.start}-${segment.end}`}
-                role="img"
-                aria-label={`${track.label} · ${formatTimecode(segment.start)} – ${formatTimecode(segment.end)}`}
-                title={`${track.label} · ${formatTimecode(segment.start)} – ${formatTimecode(segment.end)}`}
-                className="absolute top-0 h-full rounded-full bg-brand-500 transition-colors group-hover:bg-brand-600 dark:bg-brand-400"
-                style={{
-                  left: `${(segment.start / total) * 100}%`,
-                  width: `max(${((segment.end - segment.start) / total) * 100}%, 3px)`,
-                }}
-              />
-            ))}
+          {/* Toute la barre est cliquable (seek positionnel) lorsque onSeek est fourni. */}
+          {/* biome-ignore lint/a11y/useKeyWithClickEvents: les segments internes restent focusables et actionnables au clavier. */}
+          <div
+            className={cn(
+              'relative h-2.5 flex-1 rounded-full bg-ink-100 dark:bg-ink-800',
+              onSeek && 'cursor-pointer'
+            )}
+            onClick={
+              onSeek
+                ? (e) => {
+                    const rect = e.currentTarget.getBoundingClientRect()
+                    onSeek(((e.clientX - rect.left) / rect.width) * total)
+                  }
+                : undefined
+            }
+          >
+            {track.segments.map((segment) => {
+              const tooltip = `${track.label} · ${formatTimecode(segment.start)} – ${formatTimecode(segment.end)}`
+              const style = {
+                left: `${(segment.start / total) * 100}%`,
+                width: `max(${((segment.end - segment.start) / total) * 100}%, 3px)`,
+              }
+              return onSeek ? (
+                <button
+                  key={`${segment.start}-${segment.end}`}
+                  type="button"
+                  onClick={(e) => {
+                    // Seek positionnel : la position du clic dans la barre fait foi.
+                    e.stopPropagation()
+                    const bar = e.currentTarget.parentElement?.getBoundingClientRect()
+                    if (bar) onSeek(((e.clientX - bar.left) / bar.width) * total)
+                    else onSeek(segment.start)
+                  }}
+                  aria-label={tooltip}
+                  title={tooltip}
+                  className="absolute top-0 h-full cursor-pointer rounded-full bg-brand-500 transition-colors hover:bg-brand-600 dark:bg-brand-400"
+                  style={style}
+                />
+              ) : (
+                <span
+                  key={`${segment.start}-${segment.end}`}
+                  role="img"
+                  aria-label={tooltip}
+                  title={tooltip}
+                  className="absolute top-0 h-full rounded-full bg-brand-500 transition-colors group-hover:bg-brand-600 dark:bg-brand-400"
+                  style={style}
+                />
+              )
+            })}
           </div>
         </div>
       ))}

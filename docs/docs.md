@@ -274,8 +274,50 @@ Body:
 
 La réponse `/process` inclut également des champs optionnels (rétrocompatibles) :
 `thumbnailBase64` (miniature JPEG de l'image analysée), `timeline` (chronologie d'apparition des
-objets pour les vidéos : `[{ t, labels }]`) et `sourceWidth`/`sourceHeight` (référentiel des
-bounding boxes).
+objets pour les vidéos : `[{ t, labels }]`), `sourceWidth`/`sourceHeight` (référentiel des
+bounding boxes) et `audioTranscript` (transcription de la piste audio des vidéos).
+
+#### Pipeline de compréhension multimodale (optionnel, via `GROQ_API_KEY`)
+
+Au-dessus de YOLO (conservé pour les cadres précis et déterministes), dyper-ai enrichit l'analyse
+lorsque la clé Groq est présente — le tout en **best-effort** (tout échec retombe sur la
+description template locale, jamais d'échec d'analyse) :
+
+- **Décrire puis ancrer** : le modèle vision liste d'abord les éléments réellement visibles
+  (ligne structurée `ELEMENTS:` en fin de réponse, plus `SCENE:`/`INDOOR:`), puis **YOLO-World**
+  (`app/services/world_runner.py`, vocabulaire ouvert, GPU automatique avec bascule CPU si VRAM
+  insuffisante) localise précisément ces concepts — les cadres correspondent à la description,
+  bien au-delà des 80 classes COCO. Sans clé Groq ou sans YOLO-World : repli intégral sur le
+  pipeline COCO historique.
+- **Vision** (`app/services/vision_llm.py`) : un modèle vision-langage (Llama 4 Scout) reçoit
+  l'image (ou jusqu'à 4 images clés d'une vidéo) et produit le compte rendu global, **ancré par
+  le résumé des détections YOLO** (anti-hallucination) et la transcription audio.
+- **Audio** (`app/services/audio.py`) : la piste audio est extraite par le binaire ffmpeg embarqué
+  (`imageio-ffmpeg`, mono 16 kHz) puis transcrite par Whisper (Groq) ; la bande-son est identifiée
+  en parallèle par fingerprinting AudD (`AUDD_API_TOKEN`, optionnel) → champ `music`.
+- **Chat vision** (dyper-api, `groq.service.ts`) : les questions de suivi joignent la miniature au
+  message — le modèle répond en VOYANT l'image, avec les objets numérotés et leurs positions
+  (« l'objet #2 », « la personne à gauche ») et la transcription en contexte.
+
+#### Vidéo : tracking, chronologie lissée et relecture annotée
+
+- **Tracking** : la boucle vidéo utilise `model.track` (ultralytics) avec `persist` — chaque objet
+  reçoit un `trackId` stable entre frames. Le tracker est réinitialisé au premier frame de chaque
+  vidéo (`persist=False`).
+- **Chronologie lissée** (`fill_track_gaps`, `app/routes/process.py`) : les trous d'au plus
+  `TIMELINE_GAP_FILL` échantillons entre deux détections d'une même piste sont comblés —
+  supprime le scintillement des détections manquées.
+- **Détections par frame** : la réponse `/process` expose `frames: [{ t, objects[] }]`
+  (avec `trackId` et boîtes), persistées par dyper-api (`frame_detections`).
+- **Analyse par URL de plateforme** (`app/services/video_download.py`) : un lien YouTube ou
+  Twitch est téléchargé par yt-dlp (liste blanche d'hôtes stricte, durée vérifiée AVANT
+  téléchargement, mp4 plafonné à 480p / 100 Mo), traité par le pipeline vidéo standard, puis la
+  vidéo est renvoyée à la passerelle (`videoBase64`) pour le stockage et la relecture annotée.
+- **Relecture annotée** : la vidéo originale est conservée dans `MEDIA_DIR` (`<requestId>.mp4`)
+  et servie par `GET /api/media/:requestId/video` en **streaming HTTP Range** (206) ; le composant
+  `VideoPlayer` superpose les cadres synchronisés (couleur stable par piste) avec contrôles
+  complets, et la chronologie est cliquable (seek). Les vidéos sont supprimées à la purge
+  d'historique et à la suppression de compte.
 
 ### 3.3 Conversations, streaming SSE et médias
 

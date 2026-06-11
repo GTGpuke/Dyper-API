@@ -19,17 +19,13 @@ class VideoTooLongError(Exception):
     """Levée lorsqu'une vidéo dépasse la durée maximale autorisée."""
 
 
-def extract_frames(video_base64: str) -> list[tuple[Image.Image, float]]:
-    """Extrait des images (et leurs horodatages) réparties sur TOUTE la durée d'une vidéo base64.
+def write_video_tempfile(video_base64: str) -> str:
+    """Décode une vidéo base64 vers un fichier temporaire .mp4 et retourne son chemin.
 
-    Le nombre d'images suit la cadence cible (`VIDEO_SAMPLE_FPS`), plafonné par
-    `VIDEO_MAX_FRAMES`. Décode la vidéo dans un fichier temporaire, capture des frames à des
-    positions distinctes réparties sur toute la durée, puis supprime le fichier. Chaque élément
-    retourné est un couple `(image, timestamp_secondes)` — l'horodatage alimente la chronologie
-    d'apparition des objets.
+    L'appelant est responsable de la suppression du fichier (il sert à la fois à
+    l'extraction des frames et à l'extraction de la piste audio).
 
     Lève `ValueError` si la chaîne base64 est invalide (l'appelant peut répondre 422).
-    Lève `VideoTooLongError` si la durée dépasse `VIDEO_MAX_DURATION_S`.
     """
     try:
         video_bytes = base64.b64decode(video_base64, validate=True)
@@ -37,13 +33,39 @@ def extract_frames(video_base64: str) -> list[tuple[Image.Image, float]]:
         raise ValueError("Vidéo base64 invalide.") from exc
 
     tmp_fd, tmp_path = tempfile.mkstemp(suffix=".mp4")
+    with os.fdopen(tmp_fd, "wb") as tmp_file:
+        tmp_file.write(video_bytes)
+    return tmp_path
+
+
+def extract_frames(video_base64: str) -> list[tuple[Image.Image, float]]:
+    """Variante autonome : décode, extrait les frames puis supprime le fichier temporaire.
+
+    Conserve la sémantique historique (utilisée par les tests unitaires) ; la route vidéo
+    utilise `write_video_tempfile` + `extract_frames_from_path` pour partager le fichier
+    avec l'extraction audio.
+    """
+    tmp_path = write_video_tempfile(video_base64)
+    try:
+        return extract_frames_from_path(tmp_path)
+    finally:
+        if os.path.exists(tmp_path):
+            os.remove(tmp_path)
+
+
+def extract_frames_from_path(video_path: str) -> list[tuple[Image.Image, float]]:
+    """Extrait des images (et leurs horodatages) réparties sur TOUTE la durée d'une vidéo.
+
+    Le nombre d'images suit la cadence cible (`VIDEO_SAMPLE_FPS`), plafonné par
+    `VIDEO_MAX_FRAMES`. Chaque élément retourné est un couple `(image, timestamp_secondes)` —
+    l'horodatage alimente la chronologie d'apparition des objets.
+
+    Lève `VideoTooLongError` si la durée dépasse `VIDEO_MAX_DURATION_S`.
+    """
     frames: list[tuple[Image.Image, float]] = []
     cap: cv2.VideoCapture | None = None
     try:
-        with os.fdopen(tmp_fd, "wb") as tmp_file:
-            tmp_file.write(video_bytes)
-
-        cap = cv2.VideoCapture(tmp_path)
+        cap = cv2.VideoCapture(video_path)
         total_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
         if total_frames <= 0:
             return []
@@ -75,9 +97,8 @@ def extract_frames(video_base64: str) -> list[tuple[Image.Image, float]]:
                 frame_rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
                 frames.append((Image.fromarray(frame_rgb), round(pos / fps, 2)))
     finally:
+        # Le fichier vidéo n'est pas supprimé ici : il appartient à l'appelant (audio inclus).
         if cap is not None:
             cap.release()
-        if os.path.exists(tmp_path):
-            os.remove(tmp_path)
 
     return frames

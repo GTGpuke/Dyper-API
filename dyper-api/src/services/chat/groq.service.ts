@@ -7,7 +7,22 @@ import { ChatNotConfiguredError, ChatProcessingError } from '../../utils/errors'
 import { env } from '../env.service';
 import logger from '../logger.service';
 
-const MODEL = 'llama-3.1-8b-instant';
+// Modèle multimodal : répond aux questions en VOYANT l'image (miniature jointe au message).
+const MODEL = 'meta-llama/llama-4-scout-17b-16e-instruct';
+
+// Contenu d'un message utilisateur : texte seul, ou texte + image (data-URL base64).
+type UserContent =
+  | string
+  | Array<{ type: 'text'; text: string } | { type: 'image_url'; image_url: { url: string } }>;
+
+// Construit le contenu du message utilisateur (multimodal si une miniature est fournie).
+function buildUserContent(question: string, imageBase64?: string | null): UserContent {
+  if (!imageBase64) return question;
+  return [
+    { type: 'text', text: question },
+    { type: 'image_url', image_url: { url: `data:image/jpeg;base64,${imageBase64}` } },
+  ];
+}
 
 class GroqService {
   private client: Groq | null = null;
@@ -33,9 +48,17 @@ class GroqService {
     const { description, visualization } = context;
     const { scene, objects, colors, tags } = visualization;
 
+    // Objets numérotés avec position : permet de référencer « l'objet #2 » ou « celui de gauche ».
     const objectsText =
       objects.length > 0
-        ? objects.map((o) => `${o.label} (${Math.round(o.confidence * 100)}%)`).join(', ')
+        ? objects
+            .map((o, i) => {
+              const box = o.boundingBox
+                ? ` — boîte [x:${Math.round(o.boundingBox.x)}, y:${Math.round(o.boundingBox.y)}, l:${Math.round(o.boundingBox.w)}, h:${Math.round(o.boundingBox.h)}]`
+                : '';
+              return `#${i + 1} ${o.label} (${Math.round(o.confidence * 100)}%)${box}`;
+            })
+            .join(' ; ')
         : 'Aucun objet détecté';
 
     const indoorLabel =
@@ -51,7 +74,19 @@ class GroqService {
             .join('\n')}`
         : '';
 
-    return `Tu es un assistant expert en analyse d'images. Une image a été analysée par le système Dyper (basé sur YOLO). Voici les résultats obtenus :
+    // Transcription de la piste audio (vidéos uniquement).
+    const transcriptText = context.audioTranscript
+      ? `\n\n**Transcription audio :** « ${context.audioTranscript} »`
+      : '';
+
+    // Bande-son identifiée par fingerprinting (vidéos uniquement).
+    const musicText = context.music
+      ? `\n\n**Musique identifiée :** ${context.music.artist} — ${context.music.title}${
+          context.music.album ? ` (album : ${context.music.album})` : ''
+        }`
+      : '';
+
+    return `Tu es un assistant expert en analyse d'images. Une image a été analysée par le système Dyper (basé sur YOLO). Lorsque l'image est jointe au message, fonde tes réponses en priorité sur ce que tu VOIS réellement. Voici les résultats obtenus :
 
 **Description :** ${description}
 
@@ -61,7 +96,7 @@ class GroqService {
 
 **Couleurs dominantes :** ${colors.join(', ') || 'Non disponibles'}
 
-**Tags :** ${tags.join(', ') || 'Aucun'}${timelineText}
+**Tags :** ${tags.join(', ') || 'Aucun'}${timelineText}${transcriptText}${musicText}
 
 Réponds de manière concise et naturelle aux questions de l'utilisateur sur cette image et cette analyse. Réponds en ${responseLang}.`;
   }
@@ -75,11 +110,13 @@ Réponds de manière concise et naturelle aux questions de l'utilisateur sur cet
     question: string;
     context: ChatContext;
     lang?: string;
+    /** Miniature de l'analyse (base64 JPEG) : le modèle répond en voyant l'image. */
+    imageBase64?: string | null;
   }): Promise<{ answer: string; model: string }> {
-    const { question, context, lang = 'fr' } = params;
+    const { question, context, lang = 'fr', imageBase64 } = params;
     const client = this.getClient();
 
-    logger.info('Appel vers Groq pour le chat.', { lang });
+    logger.info('Appel vers Groq pour le chat.', { lang, vision: Boolean(imageBase64) });
 
     try {
       const completion = await client.chat.completions.create({
@@ -87,7 +124,7 @@ Réponds de manière concise et naturelle aux questions de l'utilisateur sur cet
         max_tokens: 1024,
         messages: [
           { role: 'system' as const, content: this.buildSystemPrompt(context, lang) },
-          { role: 'user' as const, content: question },
+          { role: 'user' as const, content: buildUserContent(question, imageBase64) },
         ],
       });
       return { answer: completion.choices[0]?.message?.content ?? '', model: MODEL };
@@ -108,11 +145,13 @@ Réponds de manière concise et naturelle aux questions de l'utilisateur sur cet
     question: string;
     context: ChatContext;
     lang?: string;
+    /** Miniature de l'analyse (base64 JPEG) : le modèle répond en voyant l'image. */
+    imageBase64?: string | null;
   }): Promise<{ stream: Stream<ChatCompletionChunk>; model: string }> {
-    const { question, context, lang = 'fr' } = params;
+    const { question, context, lang = 'fr', imageBase64 } = params;
     const client = this.getClient();
 
-    logger.info('Ouverture du flux de chat Groq.', { lang });
+    logger.info('Ouverture du flux de chat Groq.', { lang, vision: Boolean(imageBase64) });
 
     try {
       const stream = await client.chat.completions.create({
@@ -121,7 +160,7 @@ Réponds de manière concise et naturelle aux questions de l'utilisateur sur cet
         stream: true,
         messages: [
           { role: 'system' as const, content: this.buildSystemPrompt(context, lang) },
-          { role: 'user' as const, content: question },
+          { role: 'user' as const, content: buildUserContent(question, imageBase64) },
         ],
       });
       return { stream, model: MODEL };

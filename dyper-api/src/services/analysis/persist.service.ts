@@ -1,25 +1,28 @@
-// Service de persistance des analyses : une ligne en base + miniature sur disque.
+// Service de persistance des analyses : une ligne en base + médias sur disque.
 // Partagé entre les routes legacy (/api/analyze*) et les conversations.
 import { Analysis } from '../../models';
 import type { AnalyzeType, ProcessAiResponse } from '../../types';
 import logger from '../logger.service';
-import { saveThumbnail } from '../media/media.service';
+import { saveThumbnail, saveVideo } from '../media/media.service';
 
 /**
  * Enregistre l'analyse en base sans bloquer la réponse (une erreur est journalisée, pas propagée).
- * Écrit la miniature renvoyée par dyper-ai sur disque et stocke son chemin relatif.
+ * Écrit la miniature renvoyée par dyper-ai sur disque — et la vidéo originale si fournie
+ * (relecture annotée) — puis stocke leurs chemins relatifs.
  * Retourne la ligne créée, ou null en cas d'échec.
  */
 export async function persistAnalysis(
   result: ProcessAiResponse,
   type: AnalyzeType,
   lang: string,
-  userId: string | null
+  userId: string | null,
+  videoBuffer?: Buffer | null
 ): Promise<Analysis | null> {
   try {
     const thumbnailPath = result.thumbnailBase64
       ? await saveThumbnail(result.requestId, result.thumbnailBase64)
       : null;
+    const videoPath = videoBuffer ? await saveVideo(result.requestId, videoBuffer) : null;
 
     return await Analysis.create({
       request_id: result.requestId,
@@ -40,6 +43,10 @@ export async function persistAnalysis(
       objects: result.visualization.objects,
       source_width: result.sourceWidth ?? null,
       source_height: result.sourceHeight ?? null,
+      audio_transcript: result.audioTranscript ?? null,
+      video_path: videoPath,
+      frame_detections: result.frames ?? null,
+      music: result.music ?? null,
     });
   } catch (e) {
     logger.error("Échec de la persistance de l'analyse.", {

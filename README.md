@@ -8,7 +8,7 @@ Plateforme de reconnaissance visuelle basée sur YOLO. Accepte une image, une vi
 
 | Module | Technologie | Rôle | Port |
 |---|---|---|---|
-| `dyper-ai` | **Python / FastAPI / Ultralytics YOLO** | Inférence visuelle locale | 8000 |
+| `dyper-ai` | **Python / FastAPI / Ultralytics** | Pipeline « **décrire puis ancrer** » : le modèle vision (Llama 4 Scout via Groq) liste les éléments visibles, puis **YOLO-World** (vocabulaire ouvert, GPU) les localise — cadres alignés sur la description. Repli YOLO COCO sans clé. + Whisper (audio) et AudD (musique) | 8000 |
 | `dyper-api` | **Fastify / TypeScript** (passerelle pro) | API publique + comptes + conversations + historique (SQLite) + médias | 3000 |
 | `dyper-web` | **React / TypeScript / Vite / Tailwind** | SPA conversationnelle (chat façon claude.ai, streaming SSE), historique, dashboard, paramètres, docs API publiques (`/api-docs`), i18n FR/EN, mode sombre | 5173 |
 
@@ -50,7 +50,7 @@ python -m venv .venv
 pip install -r requirements.txt
 cp .env.example .env            # éditer AI_INTERNAL_KEY, variante, etc.
 # Windows PowerShell : Copy-Item .env.example .env
-uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
+uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload --reload-dir app
 ```
 Service sur http://localhost:8000 (Swagger : `/docs`).
 
@@ -85,6 +85,26 @@ Interface sur http://localhost:5173.
 | Python | **3.11 / 3.12** | 3.14+ non supporté (wheels manquants) |
 | Node.js | **20 LTS** | passerelle + frontend |
 
+### Accélération GPU (fortement recommandée)
+
+L'inférence (YOLO COCO, YOLO-World, tracking) utilise automatiquement le GPU NVIDIA dès que
+torch-CUDA est installé dans le venv de `dyper-ai`. Utiliser **cu128** (compatible des GPU
+Ampere comme la RTX 3050 jusqu'aux Blackwell comme les RTX 50xx) :
+
+```bash
+# Dans dyper-ai, venv activé (~3,3 Go de téléchargement) :
+pip uninstall -y torch torchvision
+pip install torch torchvision --index-url https://download.pytorch.org/whl/cu128
+```
+
+Sur un GPU à VRAM limitée (ex. **RTX 3050**), conserver la variante maximale fonctionne (bascule
+CPU automatique en cas de mémoire insuffisante) ; pour rester sur GPU, abaisser la variante :
+`WORLD_MODEL_VARIANT=yolov8l-worldv2` dans `dyper-ai/.env`. Penser à **démarrer une première
+fois avec internet** : YOLO-World (~400 Mo) se télécharge automatiquement au premier lancement.
+
+> **Installation complète sur une nouvelle machine (jour de présentation) :** suivre la
+> checklist pas à pas [docs/INSTALLATION-PRESENTATION.md](docs/INSTALLATION-PRESENTATION.md).
+
 ---
 
 ## Variables d'environnement
@@ -96,7 +116,9 @@ Interface sur http://localhost:5173.
 | `YOLO_MODEL_VARIANT` | `yolo26l` | `yolo26l` ou `yolo26x` |
 | `YOLO_MODEL_PATH` | `../model` | Dossier des fichiers `.pt` |
 | `YOLO_CONF_THRESHOLD` | `0.25` | Seuil de confiance minimum |
-| `IMAGE_FETCH_TIMEOUT` / `VIDEO_FRAMES` | `10` / `5` | Timeout fetch URL / frames vidéo |
+| `GROQ_API_KEY` | — | **Compréhension multimodale** : description riche par modèle vision (Llama 4 Scout) + transcription audio des vidéos (Whisper). Vide : repli sur la description locale |
+| `AUDD_API_TOKEN` | — | **Reconnaissance musicale** des vidéos (type Shazam, jeton gratuit sur audd.io). Vide : désactivée |
+| `VIDEO_MAX_DURATION_S` / `VIDEO_SAMPLE_FPS` / `VIDEO_MAX_FRAMES` | `300` / `1` / `60` | Garde de durée et échantillonnage vidéo |
 
 ### dyper-api — `.env`
 | Variable | Défaut | Description |
@@ -130,14 +152,15 @@ Toutes les routes `/api/*` exigent le header `X-App-Key`. `/health` et `/docs` s
 | Méthode | Route | Description |
 |---|---|---|
 | `POST` | `/api/analyze` | Analyse d'un fichier (multipart, champ `file`) |
-| `POST` | `/api/analyze/url` | Analyse d'une image par URL |
+| `POST` | `/api/analyze/url` | Analyse par URL : image, **vidéo YouTube ou clip Twitch** (téléchargement contrôlé) |
 | `POST` | `/api/analyze/prompt` | Analyse d'un prompt texte seul |
 | `POST` | `/api/chat` | Question de suivi (LLM Groq) |
 | `GET/POST` | `/api/conversations` | Liste / création de conversations |
 | `GET/PATCH/DELETE` | `/api/conversations/:id` | Fil de messages / renommage / suppression |
-| `POST` | `/api/conversations/:id/messages` | Envoi d'un message (texte, fichier ou URL) |
+| `POST` | `/api/conversations/:id/messages` | Envoi d'un message (texte, fichier, URL d'image ou **lien YouTube / Twitch**) |
 | `POST` | `/api/conversations/:id/messages/stream` | Question de suivi **streamée (SSE)** |
 | `GET` | `/api/media/:requestId` | Miniature JPEG d'une analyse (**cookie seul**, sans X-App-Key — utilisable en `<img>`) |
+| `GET` | `/api/media/:requestId/video` | Vidéo originale d'une analyse en **streaming HTTP Range** (cookie seul — lecteur annoté) |
 | `GET` | `/api/analyses` | Historique paginé des analyses |
 | `GET` | `/api/analyses/:id` | Détail d'une analyse |
 | `GET` | `/api/analyses/:requestId/chat` | Échanges de chat d'une analyse |

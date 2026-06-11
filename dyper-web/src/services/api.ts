@@ -14,6 +14,7 @@ import type {
   User,
   UserSettings,
 } from '../types'
+import { isVideoPlatformUrl } from '../utils/videoUrl'
 
 // Client Axios : URL de base (vide en dev → proxy Vite, cookie first-party), timeout 60 s,
 // clé applicative (X-App-Key) et envoi des cookies de session (withCredentials).
@@ -243,18 +244,30 @@ export async function sendConversationMessage(
     })
     return data
   }
+  // Une URL de plateforme vidéo (YouTube / Twitch) implique téléchargement + analyse complète :
+  // timeout étendu comme pour un fichier vidéo.
+  const timeout = input.url && isVideoPlatformUrl(input.url) ? 240_000 : undefined
   const { data } = await client.post<{
     conversation: Conversation
     messages: ConversationMessage[]
-  }>(`/api/conversations/${id}/messages`, {
-    text: input.text,
-    url: input.url,
-    lang: input.lang ?? 'fr',
-  })
+  }>(
+    `/api/conversations/${id}/messages`,
+    {
+      text: input.text,
+      url: input.url,
+      lang: input.lang ?? 'fr',
+    },
+    { timeout }
+  )
   return data
 }
 
 /** URL d'une miniature d'analyse (servie par cookie — utilisable dans un <img src>). */
 export function mediaUrl(requestId: string): string {
   return `${import.meta.env.VITE_API_URL ?? ''}/api/media/${requestId}`
+}
+
+/** URL de la vidéo originale d'une analyse (streaming Range — utilisable dans un <video src>). */
+export function videoUrl(requestId: string): string {
+  return `${import.meta.env.VITE_API_URL ?? ''}/api/media/${requestId}/video`
 }

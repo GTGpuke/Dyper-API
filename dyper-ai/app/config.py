@@ -42,6 +42,51 @@ class Settings(BaseSettings):
     # Plafond d'images analysées, quelle que soit la durée (borne le coût d'inférence).
     VIDEO_MAX_FRAMES: int = 60
 
+    # --- Compréhension multimodale (Groq, optionnelle) ---
+    # Clé API Groq : active la compréhension globale (vision LLM) et la transcription audio.
+    # Vide : repli automatique sur la description template et pas d'audio (comportement local).
+    GROQ_API_KEY: str = ""
+    # Modèle vision-langage (multimodal) pour le compte rendu global.
+    VISION_MODEL: str = "meta-llama/llama-4-scout-17b-16e-instruct"
+    # Modèle de transcription audio (Whisper hébergé par Groq).
+    WHISPER_MODEL: str = "whisper-large-v3-turbo"
+    # Nombre maximal d'images clés envoyées au modèle vision pour une vidéo.
+    VISION_MAX_FRAMES: int = 4
+    # Dimension maximale (px) des images envoyées au modèle vision (maîtrise des tokens).
+    VISION_IMAGE_MAX_DIM: int = 768
+    # Timeouts (secondes) des appels vision et audio.
+    VISION_TIMEOUT_S: float = 45.0
+    AUDIO_TIMEOUT_S: float = 60.0
+
+    # --- Reconnaissance musicale (AudD, optionnelle) ---
+    # Jeton API AudD (https://audd.io) : identifie la bande-son des vidéos (type Shazam).
+    # Vide : reconnaissance désactivée, sans erreur.
+    AUDD_API_TOKEN: str = ""
+    # Durée (secondes) de l'extrait audio envoyé pour le fingerprinting.
+    MUSIC_EXCERPT_S: int = 30
+
+    # --- Chronologie ---
+    # Nombre maximal d'échantillons manquants comblés entre deux détections d'une même piste
+    # (lissage anti-scintillement de la chronologie d'apparition).
+    TIMELINE_GAP_FILL: int = 2
+
+    # --- Détection à vocabulaire ouvert (YOLO-World, guidée par la vision) ---
+    # Variante du modèle YOLO-World : "yolov8x-worldv2" (max, défaut) ; abaisser à
+    # "yolov8l-worldv2" ou "yolov8m-worldv2" si la VRAM est limitée (ex. RTX 3050).
+    WORLD_MODEL_VARIANT: str = "yolov8x-worldv2"
+    # Seuil de confiance du vocabulaire ouvert (score plus bas que les classes COCO figées).
+    WORLD_CONF_THRESHOLD: float = 0.1
+    # Nombre maximal d'éléments (classes texte) transmis au détecteur par analyse.
+    WORLD_MAX_CLASSES: int = 20
+
+    # --- Analyse de vidéos par URL (YouTube / Twitch) ---
+    # Liste blanche des hôtes autorisés (séparés par des virgules) — aucun autre téléchargement.
+    VIDEO_URL_ALLOWED_HOSTS: str = "youtube.com,youtu.be,twitch.tv"
+    # Résolution plafonnée du téléchargement (suffisante pour YOLO et le lecteur annoté).
+    VIDEO_URL_MAX_HEIGHT: int = 480
+    # Taille maximale du fichier téléchargé (octets).
+    VIDEO_URL_MAX_BYTES: int = 100 * 1024 * 1024
+
     model_config = SettingsConfigDict(env_file=".env", extra="ignore")
 
 

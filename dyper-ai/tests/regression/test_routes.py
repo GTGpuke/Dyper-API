@@ -131,6 +131,67 @@ class TestRouteProcess:
         assert prompt_res.json()["thumbnailBase64"] is None
         assert prompt_res.json()["timeline"] is None
 
+    def test_process_image_decrire_puis_ancrer(self, client):
+        """Vérifie le pipeline « décrire puis ancrer » : cadres alignés sur la vision."""
+        from unittest.mock import AsyncMock, patch
+
+        from app.services.vision_llm import VisionAnalysis
+
+        vision = VisionAnalysis(
+            description="Une scène urbaine animée au crépuscule.",
+            elements=["rock", "metal fence"],
+            scene_label="zoo en plein air",
+            indoor=False,
+        )
+        with patch(
+            "app.routes.process.vision_llm.describe_and_extract",
+            new=AsyncMock(return_value=vision),
+        ):
+            response = client.post(
+                "/process",
+                json={
+                    "requestId": "vision-1",
+                    "type": "image",
+                    "imageBase64": _blank_image_b64(),
+                    "lang": "fr",
+                },
+            )
+        assert response.status_code == 200
+        data = response.json()
+        assert data["description"] == "Une scène urbaine animée au crépuscule."
+        # Le détecteur à vocabulaire ouvert a boxé les éléments listés par la vision
+        # (le mock WorldRunner détecte le premier élément du vocabulaire).
+        assert data["visualization"]["objects"][0]["label"] == "rock"
+        # La scène vue par la vision remplace l'heuristique COCO.
+        assert data["visualization"]["scene"]["label"] == "zoo en plein air"
+        assert data["visualization"]["scene"]["indoor"] is False
+
+    def test_process_image_vision_sans_elements_repli_coco(self, client):
+        """Vérifie le repli COCO quand la vision ne fournit pas d'éléments localisables."""
+        from unittest.mock import AsyncMock, patch
+
+        from app.services.vision_llm import VisionAnalysis
+
+        vision = VisionAnalysis(description="Un compte rendu sans éléments.", elements=[])
+        with patch(
+            "app.routes.process.vision_llm.describe_and_extract",
+            new=AsyncMock(return_value=vision),
+        ):
+            response = client.post(
+                "/process",
+                json={
+                    "requestId": "vision-repli",
+                    "type": "image",
+                    "imageBase64": _blank_image_b64(),
+                    "lang": "fr",
+                },
+            )
+        assert response.status_code == 200
+        data = response.json()
+        # Détection COCO classique (mock YoloRunner → person), description vision conservée.
+        assert data["visualization"]["objects"][0]["label"] == "person"
+        assert data["description"] == "Un compte rendu sans éléments."
+
     def test_process_image_base64_invalide_retourne_422(self, client):
         """Vérifie qu'un base64 invalide retourne 422 (et non 500)."""
         response = client.post(

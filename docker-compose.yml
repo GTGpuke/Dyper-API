@@ -8,6 +8,10 @@ services:
       AI_INTERNAL_KEY: ${AI_INTERNAL_KEY:-supersecretkey123}
       YOLO_MODEL_VARIANT: ${YOLO_MODEL_VARIANT:-yolo26l}
       YOLO_MODEL_PATH: /model
+      # Compréhension multimodale (vision + transcription audio) — optionnelle.
+      GROQ_API_KEY: ${GROQ_API_KEY:-}
+      # Reconnaissance musicale (type Shazam) — optionnelle.
+      AUDD_API_TOKEN: ${AUDD_API_TOKEN:-}
     volumes:
       - ./model:/model:ro
     healthcheck:

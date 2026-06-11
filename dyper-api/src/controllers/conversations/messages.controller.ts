@@ -18,8 +18,10 @@ import {
 import sequelize from '../../services/db/database.service';
 import { env } from '../../services/env.service';
 import logger from '../../services/logger.service';
+import { readThumbnailBase64 } from '../../services/media/media.service';
 import type { AnalyzeType } from '../../types';
 import { FileTooLargeError, InvalidFileTypeError, ValidationError } from '../../utils/errors';
+import { isVideoPlatformUrl } from '../../utils/videoUrl';
 
 // Entrée normalisée d'un envoi de message (multipart ou JSON).
 interface MessageInput {
@@ -159,27 +161,44 @@ export async function postMessage(
       lang: input.lang,
     });
     const type: AnalyzeType = isVideo ? 'video' : 'image';
-    await persistAnalysis(aiResponse, type, input.lang, userId);
+    // Les vidéos originales sont conservées sur disque pour la relecture annotée.
+    await persistAnalysis(aiResponse, type, input.lang, userId, isVideo ? input.fileBuffer : null);
     assistant = { kind: 'analysis', content: '', analysisRequestId: requestId };
   } else if (input.url) {
-    // Branche 1 bis — analyse d'une image par URL.
+    // Branche 1 bis — analyse par URL : vidéo de plateforme (YouTube / Twitch) ou image.
     const requestId = uuidv4();
-    const aiResponse = await aiService.process({
-      requestId,
-      imageUrl: input.url,
-      prompt: input.text,
-      lang: input.lang,
-    });
-    await persistAnalysis(aiResponse, 'image', input.lang, userId);
+    if (isVideoPlatformUrl(input.url)) {
+      const aiResponse = await aiService.process({
+        requestId,
+        videoUrl: input.url,
+        prompt: input.text,
+        lang: input.lang,
+      });
+      // La vidéo téléchargée par dyper-ai est stockée pour la relecture annotée.
+      const videoBuffer = aiResponse.videoBase64
+        ? Buffer.from(aiResponse.videoBase64, 'base64')
+        : null;
+      await persistAnalysis(aiResponse, 'video', input.lang, userId, videoBuffer);
+    } else {
+      const aiResponse = await aiService.process({
+        requestId,
+        imageUrl: input.url,
+        prompt: input.text,
+        lang: input.lang,
+      });
+      await persistAnalysis(aiResponse, 'image', input.lang, userId);
+    }
     assistant = { kind: 'analysis', content: '', analysisRequestId: requestId };
   } else {
     const context = await latestAnalysis(conversation.id, userId);
     if (context) {
       // Branche 3 — question de suivi (chat non-streamé) sur la dernière analyse.
+      // La miniature est jointe (best-effort) : le modèle répond en voyant l'image.
       const { answer, model } = await groqService.chatWithResult({
         question: input.text as string,
         context: buildChatContext(context),
         lang: input.lang,
+        imageBase64: await readThumbnailBase64(context.thumbnail_path),
       });
       try {
         await ChatExchange.create({
@@ -252,10 +271,12 @@ export async function streamMessage(
   });
   await touchConversation(conversation);
 
+  // La miniature est jointe (best-effort) : le modèle répond en voyant l'image.
   const { stream, model } = await groqService.streamChatWithResult({
     question: text,
     context: buildChatContext(analysisRow),
     lang,
+    imageBase64: await readThumbnailBase64(analysisRow.thumbnail_path),
   });
 
   // Phase 2 — bascule en SSE : le cycle de vie Fastify (handler d'erreurs inclus) ne s'applique plus.

@@ -13,7 +13,7 @@ import {
 } from '../../services/auth/auth.service';
 import sequelize from '../../services/db/database.service';
 import logger from '../../services/logger.service';
-import { deleteThumbnails } from '../../services/media/media.service';
+import { deleteMediaFiles } from '../../services/media/media.service';
 import type { UserSettings } from '../../types';
 import { UnauthorizedError } from '../../utils/errors';
 
@@ -134,10 +134,10 @@ export async function purgeHistory(
   const analysisWhere: Record<string, unknown> = { user_id: user.id };
   if (request.body?.type) analysisWhere.type = request.body.type;
 
-  // Chemins des miniatures à supprimer du disque, collectés avant la transaction.
-  const thumbnails = (
-    await Analysis.findAll({ attributes: ['thumbnail_path'], where: analysisWhere })
-  ).map((a) => a.thumbnail_path);
+  // Chemins des médias (miniatures + vidéos) à supprimer du disque, avant la transaction.
+  const mediaPaths = (
+    await Analysis.findAll({ attributes: ['thumbnail_path', 'video_path'], where: analysisWhere })
+  ).flatMap((a) => [a.thumbnail_path, a.video_path]);
 
   const deleted = await sequelize.transaction(async (tx) => {
     const count = await Analysis.destroy({ where: analysisWhere, transaction: tx });
@@ -151,7 +151,7 @@ export async function purgeHistory(
   });
 
   // Suppression des fichiers hors transaction (le système de fichiers n'est pas transactionnel).
-  await deleteThumbnails(thumbnails);
+  await deleteMediaFiles(mediaPaths);
 
   logger.info('Historique purgé.', { userId: user.id, deleted });
   reply.send({ success: true, deleted });
@@ -166,10 +166,13 @@ export async function deleteAccount(
   const ok = await verifyPassword(request.body.password, user.password_hash);
   if (!ok) throw new UnauthorizedError('Mot de passe incorrect.');
 
-  // Chemins des miniatures à supprimer du disque, collectés avant la transaction.
-  const thumbnails = (
-    await Analysis.findAll({ attributes: ['thumbnail_path'], where: { user_id: user.id } })
-  ).map((a) => a.thumbnail_path);
+  // Chemins des médias (miniatures + vidéos) à supprimer du disque, avant la transaction.
+  const mediaPaths = (
+    await Analysis.findAll({
+      attributes: ['thumbnail_path', 'video_path'],
+      where: { user_id: user.id },
+    })
+  ).flatMap((a) => [a.thumbnail_path, a.video_path]);
 
   await sequelize.transaction(async (tx) => {
     await Analysis.destroy({ where: { user_id: user.id }, transaction: tx });
@@ -179,7 +182,7 @@ export async function deleteAccount(
     await user.destroy({ transaction: tx });
   });
 
-  await deleteThumbnails(thumbnails);
+  await deleteMediaFiles(mediaPaths);
 
   logger.info('Compte supprimé.', { userId: user.id });
   reply.clearCookie(TOKEN_COOKIE, clearCookieOptions());

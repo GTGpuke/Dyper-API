@@ -98,7 +98,7 @@ class TestPipelineVideo:
             (Image.fromarray(np.ones((40, 60, 3), dtype="uint8") * 150), 1.0),
             (Image.fromarray(np.ones((40, 60, 3), dtype="uint8") * 200), 2.0),
         ]
-        with patch("app.services.video.extract_frames", return_value=fake_frames):
+        with patch("app.services.video.extract_frames_from_path", return_value=fake_frames):
             res = client.post(
                 "/process",
                 json={
@@ -112,16 +112,118 @@ class TestPipelineVideo:
         # Chronologie : une entrée par frame, horodatages préservés, labels du mock (person).
         assert [e["t"] for e in data["timeline"]] == [0.0, 1.0, 2.0]
         assert data["timeline"][0]["labels"] == ["person"]
+        # Détections par frame (lecteur annoté) : trackId stable issu du tracking mocké.
+        assert len(data["frames"]) == 3
+        assert data["frames"][0]["objects"][0]["trackId"] == 1
+        assert data["frames"][0]["objects"][0]["boundingBox"] is not None
         # Miniature décodable + dimensions de la première frame analysée.
         assert base64.b64decode(data["thumbnailBase64"])
         assert (data["sourceWidth"], data["sourceHeight"]) == (60, 40)
+        # Sans clés (défaut des tests) : ni transcription ni musique.
+        assert data["audioTranscript"] is None
+        assert data["music"] is None
+
+    def test_route_video_decrire_puis_ancrer_avec_audio_et_musique(self, client):
+        """Vérifie le pipeline vidéo inversé : audio → vision → tracking à vocabulaire ouvert."""
+        from unittest.mock import AsyncMock
+
+        import numpy as np
+        from app.schemas.response import MusicInfo
+        from app.services.vision_llm import VisionAnalysis
+
+        fake_frames = [(Image.fromarray(np.ones((40, 60, 3), dtype="uint8") * 100), 0.0)]
+        music = MusicInfo(artist="Daft Punk", title="Around the World", album=None)
+        vision = VisionAnalysis(
+            description="Compte rendu vision détaillé de la vidéo.",
+            elements=["elephant", "rock"],
+            scene_label="enclos de zoo",
+            indoor=False,
+        )
+        with (
+            patch("app.services.video.extract_frames_from_path", return_value=fake_frames),
+            patch(
+                "app.routes.process.audio_service.analyze_audio",
+                new=AsyncMock(return_value=("Bonjour à tous.", music)),
+            ),
+            patch(
+                "app.routes.process.vision_llm.describe_and_extract",
+                new=AsyncMock(return_value=vision),
+            ) as vision_mock,
+        ):
+            res = client.post(
+                "/process",
+                json={
+                    "requestId": "vid-vision",
+                    "type": "video",
+                    "videoBase64": base64.b64encode(b"x").decode(),
+                },
+            )
+        assert res.status_code == 200
+        data = res.json()
+        assert data["description"] == "Compte rendu vision détaillé de la vidéo."
+        assert data["audioTranscript"] == "Bonjour à tous."
+        assert data["music"] == {"artist": "Daft Punk", "title": "Around the World", "album": None}
+        # L'audio est analysé AVANT la vision et lui est transmis (transcript + musique).
+        assert vision_mock.call_args.kwargs["music_summary"] == "Daft Punk — Around the World"
+        assert vision_mock.call_args.kwargs["transcript"] == "Bonjour à tous."
+        # Tracking à vocabulaire ouvert : labels alignés sur la vision, piste stable.
+        assert data["visualization"]["objects"][0]["label"] == "elephant"
+        assert data["frames"][0]["objects"][0]["trackId"] == 1
+        assert data["visualization"]["scene"]["label"] == "enclos de zoo"
+
+    def test_route_video_par_url_plateforme(self, client, tmp_path):
+        """Vérifie l'analyse par URL : téléchargement mocké, écho videoBase64 pour stockage."""
+        from unittest.mock import AsyncMock
+
+        import numpy as np
+
+        # Faux fichier vidéo réel sur disque (le pipeline le lit puis le supprime).
+        fake_video = tmp_path / "clip.mp4"
+        fake_video.write_bytes(b"fake-mp4-from-youtube")
+        fake_frames = [(Image.fromarray(np.ones((40, 60, 3), dtype="uint8") * 100), 0.0)]
+
+        with (
+            patch(
+                "app.services.video_download.download_video_from_url",
+                new=AsyncMock(return_value=str(fake_video)),
+            ),
+            patch("app.services.video.extract_frames_from_path", return_value=fake_frames),
+        ):
+            res = client.post(
+                "/process",
+                json={
+                    "requestId": "vid-url",
+                    "type": "video",
+                    "videoUrl": "https://youtu.be/abc123",
+                },
+            )
+        assert res.status_code == 200
+        data = res.json()
+        # La vidéo téléchargée est renvoyée en base64 (stockage côté passerelle).
+        assert base64.b64decode(data["videoBase64"]) == b"fake-mp4-from-youtube"
+        assert data["visualization"]["objects"][0]["label"] == "person"
+        # Le fichier temporaire a été supprimé après traitement.
+        assert not fake_video.exists()
+
+    def test_route_video_url_hors_liste_blanche(self, client):
+        """Vérifie qu'une URL hors liste blanche est refusée avec un message clair (422)."""
+        res = client.post(
+            "/process",
+            json={
+                "requestId": "vid-url-refusee",
+                "type": "video",
+                "videoUrl": "https://example.com/video.mp4",
+            },
+        )
+        assert res.status_code == 422
+        assert "non autorisée" in res.json()["detail"]
 
     def test_route_refuse_video_trop_longue(self, client):
         """Vérifie que la route /process renvoie 422 quand la vidéo est trop longue."""
         from app.services.video import VideoTooLongError
 
         with patch(
-            "app.services.video.extract_frames",
+            "app.services.video.extract_frames_from_path",
             side_effect=VideoTooLongError(
                 "La vidéo dépasse la durée maximale autorisée de 5 minutes."
             ),

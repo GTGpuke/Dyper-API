@@ -1,13 +1,16 @@
-// Page Détail : enregistrement complet d'une analyse + historique de chat persisté.
-import type { ReactNode } from 'react'
+// Page Détail : enregistrement complet d'une analyse (lecteur vidéo annoté inclus) +
+// historique de chat persisté.
+import { useRef, type ReactNode } from 'react'
 import { Link, useParams } from 'react-router-dom'
 import { PageContainer } from '../components/layout/PageContainer'
 import { PageHeader } from '../components/layout/PageHeader'
+import { MusicBadge } from '../components/result/MusicBadge'
 import { SceneBadge } from '../components/result/SceneBadge'
 import { ColorPalette } from '../components/result/ColorPalette'
 import { TagCloud } from '../components/result/TagCloud'
+import { VideoPlayer } from '../components/result/VideoPlayer'
 import { VideoTimeline } from '../components/result/VideoTimeline'
-import { mediaUrl } from '../services/api'
+import { mediaUrl, videoUrl } from '../services/api'
 import { Badge } from '../components/ui/Badge'
 import { Skeleton } from '../components/ui/Skeleton'
 import { ErrorBanner } from '../components/ui/ErrorBanner'
@@ -28,6 +31,8 @@ export function DetailPage() {
   const { id } = useParams<{ id: string }>()
   const { t, lang } = useI18n()
   const { analysis, chat, loading, error } = useAnalysis(id)
+  const seekRef = useRef<((time: number) => void) | null>(null)
+  const hasPlayer = Boolean(analysis?.video_path)
 
   return (
     <PageContainer>
@@ -56,24 +61,54 @@ export function DetailPage() {
             {/* Colonne principale. */}
             <div className="flex flex-col gap-6 lg:col-span-2">
               <div className="surface flex flex-col gap-6 p-6">
-                {analysis.thumbnail_path && (
-                  <img
-                    src={mediaUrl(analysis.request_id)}
-                    alt={t('history.thumbnailAlt')}
-                    className="max-h-80 w-full rounded-xl border border-ink-200 object-contain dark:border-ink-800"
-                    onError={(e) => {
-                      e.currentTarget.style.display = 'none'
-                    }}
+                {/* Média : lecteur vidéo annoté si la vidéo est conservée, sinon miniature. */}
+                {hasPlayer ? (
+                  <VideoPlayer
+                    src={videoUrl(analysis.request_id)}
+                    frames={analysis.frame_detections ?? []}
+                    sourceWidth={analysis.source_width}
+                    sourceHeight={analysis.source_height}
+                    seekRef={seekRef}
                   />
+                ) : (
+                  analysis.thumbnail_path && (
+                    <img
+                      src={mediaUrl(analysis.request_id)}
+                      alt={t('history.thumbnailAlt')}
+                      className="max-h-80 w-full rounded-xl border border-ink-200 object-contain dark:border-ink-800"
+                      onError={(e) => {
+                        e.currentTarget.style.display = 'none'
+                      }}
+                    />
+                  )
                 )}
 
                 <Section title={t('result.description')}>
                   <p className="text-[15px] leading-relaxed text-ink-700 dark:text-ink-200">{analysis.description}</p>
                 </Section>
 
+                {analysis.music && (
+                  <Section title={t('music.title')}>
+                    <div>
+                      <MusicBadge music={analysis.music} />
+                    </div>
+                  </Section>
+                )}
+
                 {analysis.timeline && analysis.timeline.length > 0 && (
                   <Section title={t('timeline.title')}>
-                    <VideoTimeline timeline={analysis.timeline} />
+                    <VideoTimeline
+                      timeline={analysis.timeline}
+                      onSeek={hasPlayer ? (time) => seekRef.current?.(time) : undefined}
+                    />
+                  </Section>
+                )}
+
+                {analysis.audio_transcript && (
+                  <Section title={t('transcript.title')}>
+                    <blockquote className="rounded-xl border-l-2 border-brand-400 bg-ink-50 px-3.5 py-2.5 text-sm italic leading-relaxed text-ink-600 dark:bg-ink-800/60 dark:text-ink-300">
+                      {analysis.audio_transcript}
+                    </blockquote>
                   </Section>
                 )}
 

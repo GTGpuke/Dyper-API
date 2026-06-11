@@ -192,7 +192,7 @@ const fr: Dict = {
   'chat.composer.attach': 'Joindre',
   'chat.attach.file': 'Importer un fichier',
   'chat.attach.url': 'Analyser une image par URL',
-  'chat.attach.urlPlaceholder': 'https://exemple.com/image.jpg',
+  'chat.attach.urlPlaceholder': 'https://exemple.com/image.jpg ou lien YouTube / Twitch',
   'chat.attach.urlAdd': 'Ajouter',
   'chat.attach.remove': 'Retirer la pièce jointe',
   'chat.drop.hint': 'Déposez votre image ou vidéo ici',
@@ -210,7 +210,7 @@ const fr: Dict = {
   'hero.browse': 'cliquez pour parcourir',
   'hero.paste': 'collez une image (Ctrl+V)',
   'hero.limits': 'Images jusqu’à 10 Mo · vidéos jusqu’à 5 min / 100 Mo',
-  'hero.orUrl': 'ou analyser une image par URL',
+  'hero.orUrl': 'ou analyser une URL : image, vidéo YouTube ou clip Twitch',
   'hero.analyze': 'Analyser',
   'hero.optionalHint':
     'Astuce : ajoutez une question dans la barre ci-dessous avant de lancer l’analyse (optionnel).',
@@ -219,6 +219,17 @@ const fr: Dict = {
   'analyzing.colors': 'Analyse de la scène et des couleurs…',
   'analyzing.report': 'Génération du compte rendu…',
   'timeline.title': "Chronologie d'apparition",
+  'player.play': 'Lecture',
+  'player.pause': 'Pause',
+  'player.prevFrame': 'Frame analysée précédente',
+  'player.nextFrame': 'Frame analysée suivante',
+  'player.seek': 'Position dans la vidéo',
+  'player.speed': 'Vitesse de lecture',
+  'player.mute': 'Couper le son',
+  'player.unmute': 'Activer le son',
+  'player.toggleBoxes': 'Afficher / masquer les cadres de détection',
+  'music.title': 'Musique identifiée',
+  'transcript.title': 'Transcription audio',
   'timeline.more': '+{n} autres',
   'timeline.less': 'Réduire',
   'history.thumbnailAlt': "Miniature de l'analyse",
@@ -262,7 +273,8 @@ const fr: Dict = {
   'docs.ep.logout.desc': 'Ferme la session (efface le cookie).',
   'docs.ep.analyzeFile.desc':
     'Analyse un fichier image (≤ 10 Mo) ou vidéo (≤ 5 min / 100 Mo). Les vidéos sont échantillonnées à ~1 image/s (60 max) sur toute leur durée.',
-  'docs.ep.analyzeUrl.desc': 'Analyse une image accessible par URL publique.',
+  'docs.ep.analyzeUrl.desc':
+    'Analyse une URL publique : image, vidéo YouTube ou clip Twitch (téléchargement contrôlé, vidéos ≤ 5 min).',
   'docs.ep.analyzePrompt.desc': 'Analyse un prompt texte seul (sans média).',
   'docs.ep.listConversations.desc':
     "Liste les conversations de l'utilisateur, triées par activité récente (sans les messages).",
@@ -281,6 +293,8 @@ const fr: Dict = {
   'docs.ep.getChatHistory.desc': "Échanges de chat liés à une analyse (par request_id).",
   'docs.ep.getMedia.desc':
     "Miniature JPEG d'une analyse. Authentification par cookie uniquement (utilisable en <img src>).",
+  'docs.ep.getMediaVideo.desc':
+    "Vidéo originale d'une analyse, servie en streaming HTTP Range (seek instantané). Alimente le lecteur annoté de l'application.",
   'docs.ep.getMe.desc': 'Profil et préférences du compte courant.',
   'docs.ep.updateSettings.desc': 'Met à jour les préférences (fusion profonde).',
   'docs.ep.exportData.desc': 'Exporte toutes les données du compte (JSON).',
@@ -482,7 +496,7 @@ const en: Dict = {
   'chat.composer.attach': 'Attach',
   'chat.attach.file': 'Upload a file',
   'chat.attach.url': 'Analyze an image by URL',
-  'chat.attach.urlPlaceholder': 'https://example.com/image.jpg',
+  'chat.attach.urlPlaceholder': 'https://example.com/image.jpg or YouTube / Twitch link',
   'chat.attach.urlAdd': 'Add',
   'chat.attach.remove': 'Remove attachment',
   'chat.drop.hint': 'Drop your image or video here',
@@ -500,7 +514,7 @@ const en: Dict = {
   'hero.browse': 'click to browse',
   'hero.paste': 'paste an image (Ctrl+V)',
   'hero.limits': 'Images up to 10 MB · videos up to 5 min / 100 MB',
-  'hero.orUrl': 'or analyze an image by URL',
+  'hero.orUrl': 'or analyze a URL: image, YouTube video or Twitch clip',
   'hero.analyze': 'Analyze',
   'hero.optionalHint':
     'Tip: add a question in the bar below before starting the analysis (optional).',
@@ -509,6 +523,17 @@ const en: Dict = {
   'analyzing.colors': 'Analyzing scene and colors…',
   'analyzing.report': 'Generating the report…',
   'timeline.title': 'Appearance timeline',
+  'player.play': 'Play',
+  'player.pause': 'Pause',
+  'player.prevFrame': 'Previous analyzed frame',
+  'player.nextFrame': 'Next analyzed frame',
+  'player.seek': 'Video position',
+  'player.speed': 'Playback speed',
+  'player.mute': 'Mute',
+  'player.unmute': 'Unmute',
+  'player.toggleBoxes': 'Show / hide detection boxes',
+  'music.title': 'Identified music',
+  'transcript.title': 'Audio transcript',
   'timeline.more': '+{n} more',
   'timeline.less': 'Show less',
   'history.thumbnailAlt': 'Analysis thumbnail',
@@ -551,7 +576,8 @@ const en: Dict = {
   'docs.ep.logout.desc': 'Closes the session (clears the cookie).',
   'docs.ep.analyzeFile.desc':
     'Analyzes an image file (≤ 10 MB) or a video (≤ 5 min / 100 MB). Videos are sampled at ~1 frame/s (max 60) across their full duration.',
-  'docs.ep.analyzeUrl.desc': 'Analyzes an image available at a public URL.',
+  'docs.ep.analyzeUrl.desc':
+    'Analyzes a public URL: image, YouTube video or Twitch clip (controlled download, videos ≤ 5 min).',
   'docs.ep.analyzePrompt.desc': 'Analyzes a text-only prompt (no media).',
   'docs.ep.listConversations.desc':
     "Lists the user's conversations, sorted by recent activity (without messages).",
@@ -570,6 +596,8 @@ const en: Dict = {
   'docs.ep.getChatHistory.desc': 'Chat exchanges linked to an analysis (by request_id).',
   'docs.ep.getMedia.desc':
     'JPEG thumbnail of an analysis. Cookie-only authentication (usable in <img src>).',
+  'docs.ep.getMediaVideo.desc':
+    'Original video of an analysis, served with HTTP Range streaming (instant seek). Powers the annotated player of the app.',
   'docs.ep.getMe.desc': 'Profile and preferences of the current account.',
   'docs.ep.updateSettings.desc': 'Updates preferences (deep merge).',
   'docs.ep.exportData.desc': 'Exports all account data (JSON).',

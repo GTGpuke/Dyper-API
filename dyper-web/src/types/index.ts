@@ -13,6 +13,21 @@ export interface DetectedObject {
   label: string
   confidence: number
   boundingBox?: BoundingBox
+  /** Identifiant de piste stable entre frames (vidéos trackées). */
+  trackId?: number | null
+}
+
+/** Détections complètes d'une frame échantillonnée (lecteur vidéo annoté). */
+export interface FrameDetections {
+  t: number
+  objects: DetectedObject[]
+}
+
+/** Bande-son identifiée par fingerprinting (reconnaissance musicale). */
+export interface MusicInfo {
+  artist: string
+  title: string
+  album?: string | null
 }
 
 export interface Scene {
@@ -68,6 +83,10 @@ export interface AnalysisRecord {
   objects: DetectedObject[] | null
   source_width: number | null
   source_height: number | null
+  audio_transcript: string | null
+  video_path: string | null
+  frame_detections: FrameDetections[] | null
+  music: MusicInfo | null
   created_at: string
 }
 
@@ -201,6 +220,10 @@ export interface InlineAnalysis {
   sourceWidth: number | null
   sourceHeight: number | null
   thumbnailUrl: string | null
+  audioTranscript: string | null
+  videoUrl: string | null
+  frames: FrameDetections[] | null
+  music: MusicInfo | null
 }
 
 export interface ConversationMessage {

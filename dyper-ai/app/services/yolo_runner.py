@@ -51,3 +51,16 @@ class YoloRunner:
         conf = settings.YOLO_CONF_THRESHOLD if conf_threshold is None else conf_threshold
         results = self.model.predict(source=image, conf=conf, verbose=False)
         return results[0]
+
+    def track(self, image: Image.Image, persist: bool, conf_threshold: float | None = None) -> Any:
+        """Détection avec suivi d'objets (IDs de piste stables entre les frames d'une vidéo).
+
+        `persist=False` sur la première frame réinitialise le tracker (nouvelle vidéo) ;
+        `persist=True` sur les suivantes conserve les pistes. Les boxes des résultats
+        portent alors un attribut `.id` (identifiant de piste).
+        """
+        if self.model is None:
+            raise RuntimeError("Le modèle YOLO n'est pas chargé. Appelez load() au démarrage.")
+        conf = settings.YOLO_CONF_THRESHOLD if conf_threshold is None else conf_threshold
+        results = self.model.track(source=image, conf=conf, persist=persist, verbose=False)
+        return results[0]

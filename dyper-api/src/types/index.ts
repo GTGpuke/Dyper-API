@@ -14,6 +14,8 @@ export interface DetectedObject {
   label: string;
   confidence: number;
   boundingBox?: BoundingBox;
+  /** Identifiant de piste stable entre frames (vidéos trackées). */
+  trackId?: number | null;
 }
 
 /** Scène inférée à partir des objets détectés. */
@@ -38,6 +40,19 @@ export interface TimelineEntry {
   labels: string[];
 }
 
+/** Détections complètes d'une frame échantillonnée (lecteur vidéo annoté). */
+export interface FrameDetections {
+  t: number;
+  objects: DetectedObject[];
+}
+
+/** Bande-son identifiée par fingerprinting (reconnaissance musicale). */
+export interface MusicInfo {
+  artist: string;
+  title: string;
+  album?: string | null;
+}
+
 /** Réponse brute du service d'inférence dyper-ai (POST /process). */
 export interface ProcessAiResponse {
   requestId: string;
@@ -50,6 +65,11 @@ export interface ProcessAiResponse {
   timeline?: TimelineEntry[] | null;
   sourceWidth?: number | null;
   sourceHeight?: number | null;
+  audioTranscript?: string | null;
+  frames?: FrameDetections[] | null;
+  music?: MusicInfo | null;
+  /** Vidéo téléchargée depuis une URL de plateforme (base64) — à stocker côté passerelle. */
+  videoBase64?: string | null;
 }
 
 /** Résultat exposé au client (réponse dyper-ai enrichie de la langue). */
@@ -64,6 +84,8 @@ export interface ProcessOptions {
   fileBuffer?: Buffer;
   mimetype?: string;
   imageUrl?: string;
+  /** URL d'une vidéo de plateforme (YouTube / Twitch) — analyse vidéo par téléchargement. */
+  videoUrl?: string;
   prompt?: string | null;
   lang?: string;
 }
@@ -78,6 +100,10 @@ export interface ChatContext {
   requestId?: string;
   /** Chronologie d'apparition des objets (vidéos) — enrichit le prompt système. */
   timeline?: TimelineEntry[] | null;
+  /** Transcription audio (vidéos) — enrichit le prompt système. */
+  audioTranscript?: string | null;
+  /** Bande-son identifiée (vidéos) — enrichit le prompt système. */
+  music?: MusicInfo | null;
 }
 
 // ─── Préférences utilisateur (colonne JSON `settings` du modèle User) ──────────
@@ -138,6 +164,10 @@ export interface InlineAnalysis {
   sourceWidth: number | null;
   sourceHeight: number | null;
   thumbnailUrl: string | null;
+  audioTranscript: string | null;
+  videoUrl: string | null;
+  frames: FrameDetections[] | null;
+  music: MusicInfo | null;
 }
 
 /** Vue d'un message renvoyée au client (analyse inlinée si carte). */

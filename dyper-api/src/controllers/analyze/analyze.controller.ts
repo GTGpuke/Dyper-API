@@ -8,6 +8,7 @@ import { env } from '../../services/env.service';
 import logger from '../../services/logger.service';
 import type { AnalysisResult, ProcessAiResponse } from '../../types';
 import { FileTooLargeError, InvalidFileTypeError, ValidationError } from '../../utils/errors';
+import { isVideoPlatformUrl } from '../../utils/videoUrl';
 
 interface AnalyzeBody {
   prompt?: string;
@@ -19,7 +20,7 @@ interface AnalyzeUrlBody extends AnalyzeBody {
 }
 
 // Construit l'enveloppe de réponse standard Dyper.
-// La miniature base64 est volontairement exclue (elle est servie par /api/media, pas inlinée).
+// La miniature et la vidéo base64 sont volontairement exclues (servies par /api/media).
 function sendResult(
   reply: FastifyReply,
   requestId: string,
@@ -27,7 +28,7 @@ function sendResult(
   aiResponse: ProcessAiResponse,
   lang: string
 ): void {
-  const { thumbnailBase64: _thumbnail, ...rest } = aiResponse;
+  const { thumbnailBase64: _thumbnail, videoBase64: _video, ...rest } = aiResponse;
   const result: AnalysisResult = { ...rest, lang };
   reply.status(200).send({ success: true, requestId, processingTime, result });
 }
@@ -76,11 +77,13 @@ export async function analyzeFile(request: FastifyRequest, reply: FastifyReply):
   const resolvedLang = lang ?? 'fr';
 
   logger.info('Analyse de fichier terminée.', { requestId, processingTime });
+  // Les vidéos originales sont conservées sur disque pour la relecture annotée.
   await persistAnalysis(
     aiResponse,
-    mimetype.startsWith('video/') ? 'video' : 'image',
+    isVideo ? 'video' : 'image',
     resolvedLang,
-    request.authUser?.id ?? null
+    request.authUser?.id ?? null,
+    isVideo ? fileBuffer : null
   );
 
   sendResult(reply, requestId, processingTime, aiResponse, resolvedLang);
@@ -97,12 +100,25 @@ export async function analyzeUrl(
 
   logger.info('Analyse par URL démarrée.', { requestId, url });
 
-  const aiResponse = await aiService.process({ requestId, imageUrl: url, prompt, lang });
+  // URL de plateforme vidéo (YouTube / Twitch) → analyse vidéo complète ; sinon image.
+  const isPlatformVideo = isVideoPlatformUrl(url);
+  const aiResponse = await aiService.process(
+    isPlatformVideo
+      ? { requestId, videoUrl: url, prompt, lang }
+      : { requestId, imageUrl: url, prompt, lang }
+  );
   const processingTime = Date.now() - startTime;
   const resolvedLang = lang ?? 'fr';
 
   logger.info('Analyse par URL terminée.', { requestId, processingTime });
-  await persistAnalysis(aiResponse, 'image', resolvedLang, request.authUser?.id ?? null);
+  const videoBuffer = aiResponse.videoBase64 ? Buffer.from(aiResponse.videoBase64, 'base64') : null;
+  await persistAnalysis(
+    aiResponse,
+    isPlatformVideo ? 'video' : 'image',
+    resolvedLang,
+    request.authUser?.id ?? null,
+    videoBuffer
+  );
 
   sendResult(reply, requestId, processingTime, aiResponse, resolvedLang);
 }

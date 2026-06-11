@@ -1,4 +1,5 @@
-// Service de stockage des miniatures d'analyses sur disque (servies par /api/media).
+// Service de stockage des médias d'analyses sur disque (miniatures et vidéos originales,
+// servies par /api/media).
 import fs from 'node:fs';
 import path from 'node:path';
 import { env } from '../env.service';
@@ -32,8 +33,24 @@ export async function saveThumbnail(requestId: string, base64: string): Promise<
   }
 }
 
-/** Supprime des miniatures (best-effort : ENOENT ignoré, autres erreurs journalisées). */
-export async function deleteThumbnails(paths: Array<string | null>): Promise<void> {
+/**
+ * Écrit la vidéo originale d'une analyse et retourne son nom de fichier relatif.
+ * Ne lève jamais : un échec d'écriture est journalisé et retourne null.
+ */
+export async function saveVideo(requestId: string, buffer: Buffer): Promise<string | null> {
+  try {
+    await ensureDir();
+    const filename = `${requestId}.mp4`;
+    await fs.promises.writeFile(path.join(mediaRoot(), filename), buffer);
+    return filename;
+  } catch (e) {
+    logger.error("Échec de l'écriture de la vidéo.", { requestId, error: e });
+    return null;
+  }
+}
+
+/** Supprime des fichiers médias (best-effort : ENOENT ignoré, autres erreurs journalisées). */
+export async function deleteMediaFiles(paths: Array<string | null>): Promise<void> {
   const results = await Promise.allSettled(
     paths
       .filter((p): p is string => Boolean(p))
@@ -41,7 +58,7 @@ export async function deleteThumbnails(paths: Array<string | null>): Promise<voi
   );
   for (const r of results) {
     if (r.status === 'rejected' && (r.reason as { code?: string })?.code !== 'ENOENT') {
-      logger.warn("Échec de la suppression d'une miniature.", { error: r.reason });
+      logger.warn("Échec de la suppression d'un fichier média.", { error: r.reason });
     }
   }
 }
@@ -54,4 +71,36 @@ export function resolveThumbnailPath(relative: string): string | null {
   const abs = path.resolve(mediaRoot(), relative);
   if (!abs.startsWith(mediaRoot() + path.sep)) return null;
   return abs;
+}
+
+/**
+ * Retourne la taille (octets) et le chemin absolu d'un média, ou null s'il est absent
+ * ou hors périmètre (utilisé par le streaming HTTP Range des vidéos).
+ */
+export async function statMediaFile(
+  relative: string
+): Promise<{ absolute: string; size: number } | null> {
+  const absolute = resolveThumbnailPath(relative);
+  if (!absolute) return null;
+  try {
+    const stats = await fs.promises.stat(absolute);
+    return { absolute, size: stats.size };
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Lit une miniature et la retourne en base64 (pour le chat vision). Best-effort :
+ * retourne null si le chemin est absent, hors périmètre ou illisible.
+ */
+export async function readThumbnailBase64(relative: string | null): Promise<string | null> {
+  if (!relative) return null;
+  const absolute = resolveThumbnailPath(relative);
+  if (!absolute) return null;
+  try {
+    return (await fs.promises.readFile(absolute)).toString('base64');
+  } catch {
+    return null;
+  }
 }

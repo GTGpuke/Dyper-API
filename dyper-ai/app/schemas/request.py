@@ -19,6 +19,10 @@ class ProcessRequest(BaseModel):
     videoBase64: str | None = Field(
         default=None, description="Vidéo encodée en base64 (type=video)."
     )
+    videoUrl: str | None = Field(
+        default=None,
+        description="URL d'une vidéo de plateforme autorisée — YouTube, Twitch (type=video).",
+    )
     prompt: str | None = Field(
         default=None, max_length=2000, description="Contexte textuel libre (optionnel)."
     )
@@ -29,8 +33,8 @@ class ProcessRequest(BaseModel):
         """Vérifie que le champ requis pour le type demandé est bien présent (sinon 422)."""
         if self.type == "image" and not (self.imageBase64 or self.imageUrl):
             raise ValueError("imageBase64 ou imageUrl est requis pour le type « image ».")
-        if self.type == "video" and not self.videoBase64:
-            raise ValueError("videoBase64 est requis pour le type « video ».")
+        if self.type == "video" and not (self.videoBase64 or self.videoUrl):
+            raise ValueError("videoBase64 ou videoUrl est requis pour le type « video ».")
         if self.type == "prompt" and not self.prompt:
             raise ValueError("prompt est requis pour le type « prompt ».")
         return self

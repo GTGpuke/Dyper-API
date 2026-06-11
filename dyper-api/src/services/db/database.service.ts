@@ -58,6 +58,10 @@ async function ensureSchemaUpgrades(): Promise<void> {
   await ensureColumn('analysis', 'objects', 'JSON DEFAULT NULL');
   await ensureColumn('analysis', 'source_width', 'INTEGER DEFAULT NULL');
   await ensureColumn('analysis', 'source_height', 'INTEGER DEFAULT NULL');
+  await ensureColumn('analysis', 'audio_transcript', 'TEXT DEFAULT NULL');
+  await ensureColumn('analysis', 'video_path', 'VARCHAR(255) DEFAULT NULL');
+  await ensureColumn('analysis', 'frame_detections', 'JSON DEFAULT NULL');
+  await ensureColumn('analysis', 'music', 'JSON DEFAULT NULL');
 
   // Tables des conversations : créées même en production (sync sans alter = CREATE IF NOT EXISTS).
   const { Conversation, Message } = await import('../../models');

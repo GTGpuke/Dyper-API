@@ -49,6 +49,10 @@ export function toInlineAnalysis(analysis: Analysis): InlineAnalysis {
     sourceWidth: analysis.source_width,
     sourceHeight: analysis.source_height,
     thumbnailUrl: analysis.thumbnail_path ? `/api/media/${analysis.request_id}` : null,
+    audioTranscript: analysis.audio_transcript,
+    videoUrl: analysis.video_path ? `/api/media/${analysis.request_id}/video` : null,
+    frames: analysis.frame_detections,
+    music: analysis.music,
   };
 }
 
@@ -107,6 +111,8 @@ export function buildChatContext(analysis: Analysis): ChatContext {
     lang: analysis.lang,
     requestId: analysis.request_id,
     timeline: analysis.timeline,
+    audioTranscript: analysis.audio_transcript,
+    music: analysis.music,
     visualization: {
       objects: analysis.objects ?? [],
       scene: {

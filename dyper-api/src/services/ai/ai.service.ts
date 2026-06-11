@@ -31,7 +31,7 @@ class AiService {
    * @throws {AiProcessingError} Si dyper-ai retourne une erreur de traitement.
    */
   async process(opts: ProcessOptions): Promise<ProcessAiResponse> {
-    const { requestId, fileBuffer, mimetype, imageUrl, prompt, lang } = opts;
+    const { requestId, fileBuffer, mimetype, imageUrl, videoUrl, prompt, lang } = opts;
 
     const payload: Record<string, unknown> = {
       requestId,
@@ -49,6 +49,10 @@ class AiService {
       } else {
         payload.imageBase64 = fileToBase64(fileBuffer);
       }
+    } else if (videoUrl) {
+      // Vidéo de plateforme (YouTube / Twitch) : téléchargée et analysée par dyper-ai.
+      type = 'video';
+      payload.videoUrl = videoUrl;
     } else if (imageUrl) {
       type = 'image';
       payload.imageUrl = imageUrl;

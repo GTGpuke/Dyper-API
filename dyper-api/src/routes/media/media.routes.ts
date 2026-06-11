@@ -1,8 +1,14 @@
-// Route de service des miniatures, exposée sous /api/media.
+// Routes de service des médias, exposées sous /api/media.
 // Scope particulier : authentification par cookie JWT uniquement (sans X-App-Key), car les
-// miniatures sont chargées par des balises <img> qui ne peuvent pas envoyer de header custom.
+// balises <img> et <video> ne peuvent pas envoyer de header custom.
 import type { FastifyInstance } from 'fastify';
-import { getThumbnail } from '../../controllers/media/media.controller';
+import { getThumbnail, getVideo } from '../../controllers/media/media.controller';
+
+const PARAMS_SCHEMA = {
+  type: 'object',
+  required: ['requestId'],
+  properties: { requestId: { type: 'string' } },
+} as const;
 
 export async function mediaRoutes(app: FastifyInstance): Promise<void> {
   // GET /api/media/:requestId — miniature JPEG d'une analyse.
@@ -12,13 +18,22 @@ export async function mediaRoutes(app: FastifyInstance): Promise<void> {
       schema: {
         tags: ['Média'],
         summary: "Miniature JPEG d'une analyse (authentification par cookie)",
-        params: {
-          type: 'object',
-          required: ['requestId'],
-          properties: { requestId: { type: 'string' } },
-        },
+        params: PARAMS_SCHEMA,
       },
     },
     getThumbnail
+  );
+
+  // GET /api/media/:requestId/video — vidéo originale en streaming HTTP Range.
+  app.get<{ Params: { requestId: string } }>(
+    '/:requestId/video',
+    {
+      schema: {
+        tags: ['Média'],
+        summary: "Vidéo originale d'une analyse, streaming Range (authentification par cookie)",
+        params: PARAMS_SCHEMA,
+      },
+    },
+    getVideo
   );
 }

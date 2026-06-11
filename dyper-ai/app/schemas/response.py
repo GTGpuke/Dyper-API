@@ -18,6 +18,9 @@ class DetectedObject(BaseModel):
     label: str = Field(..., description="Label COCO brut (anglais), ex. « laptop ».")
     confidence: float = Field(..., ge=0.0, le=1.0, description="Score de confiance (0 → 1).")
     boundingBox: BoundingBox | None = None
+    trackId: int | None = Field(
+        default=None, description="Identifiant de piste stable entre frames (vidéos trackées)."
+    )
 
 
 class Scene(BaseModel):
@@ -49,6 +52,23 @@ class TimelineEntry(BaseModel):
     labels: list[str] = Field(..., description="Labels des objets détectés à cet instant.")
 
 
+class FrameDetections(BaseModel):
+    """Détections complètes d'une frame échantillonnée (lecteur vidéo annoté)."""
+
+    t: float = Field(..., ge=0.0, description="Horodatage de la frame analysée (secondes).")
+    objects: list[DetectedObject] = Field(
+        ..., description="Objets détectés sur cette frame (avec trackId et boîtes)."
+    )
+
+
+class MusicInfo(BaseModel):
+    """Bande-son identifiée par fingerprinting (reconnaissance musicale)."""
+
+    artist: str = Field(..., description="Artiste identifié.")
+    title: str = Field(..., description="Titre du morceau.")
+    album: str | None = Field(default=None, description="Album, si connu.")
+
+
 class ProcessResponse(BaseModel):
     """Réponse complète du pipeline de traitement dyper-ai."""
 
@@ -69,4 +89,18 @@ class ProcessResponse(BaseModel):
     )
     sourceHeight: int | None = Field(
         default=None, description="Hauteur (px) de l'image analysée — référentiel des boîtes."
+    )
+    audioTranscript: str | None = Field(
+        default=None, description="Transcription de la piste audio (vidéos, si disponible)."
+    )
+    frames: list[FrameDetections] | None = Field(
+        default=None,
+        description="Détections par frame échantillonnée (vidéos) — lecteur annoté.",
+    )
+    music: MusicInfo | None = Field(
+        default=None, description="Bande-son identifiée (vidéos, si disponible)."
+    )
+    videoBase64: str | None = Field(
+        default=None,
+        description="Vidéo téléchargée depuis une URL (base64) — renvoyée pour stockage.",
     )

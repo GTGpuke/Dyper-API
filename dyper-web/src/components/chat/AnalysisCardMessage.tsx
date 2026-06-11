@@ -1,14 +1,17 @@
-// Carte d'analyse dans le fil : miniature annotée, description, détails repliables, timeline.
-import { useState } from 'react'
+// Carte d'analyse dans le fil : média annoté (lecteur vidéo ou miniature), description,
+// musique identifiée, détails repliables, chronologie cliquable.
+import { useRef, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { useI18n } from '../../contexts/I18nContext'
-import { mediaUrl } from '../../services/api'
+import { mediaUrl, videoUrl } from '../../services/api'
 import type { InlineAnalysis } from '../../types'
 import { BoundingBoxOverlay } from '../result/BoundingBoxOverlay'
 import { ColorPalette } from '../result/ColorPalette'
+import { MusicBadge } from '../result/MusicBadge'
 import { ObjectList } from '../result/ObjectList'
 import { SceneBadge } from '../result/SceneBadge'
 import { TagCloud } from '../result/TagCloud'
+import { VideoPlayer } from '../result/VideoPlayer'
 import { VideoTimeline } from '../result/VideoTimeline'
 
 export function AnalysisCardMessage({ analysis }: { analysis: InlineAnalysis }) {
@@ -16,16 +19,29 @@ export function AnalysisCardMessage({ analysis }: { analysis: InlineAnalysis }) 
   const [expanded, setExpanded] = useState(false)
   const [hover, setHover] = useState<number | null>(null)
   const [thumbFailed, setThumbFailed] = useState(false)
+  const seekRef = useRef<((time: number) => void) | null>(null)
 
   const thumbnail = analysis.thumbnailUrl ? mediaUrl(analysis.requestId) : null
   const showBoxes =
     analysis.type === 'image' && analysis.sourceWidth !== null && analysis.sourceHeight !== null
+  // Lecteur annoté : vidéo conservée sur disque (les anciennes analyses gardent la miniature).
+  const hasPlayer = Boolean(analysis.videoUrl)
 
   return (
     <div className="surface flex max-w-2xl flex-col gap-4 p-4">
-      {/* Miniature (annotée pour les images, simple pour les vidéos). */}
-      {thumbnail && !thumbFailed && (
-        showBoxes ? (
+      {/* Média : lecteur vidéo annoté, image annotée, ou miniature simple. */}
+      {hasPlayer ? (
+        <VideoPlayer
+          src={videoUrl(analysis.requestId)}
+          frames={analysis.frames ?? []}
+          sourceWidth={analysis.sourceWidth}
+          sourceHeight={analysis.sourceHeight}
+          seekRef={seekRef}
+        />
+      ) : (
+        thumbnail &&
+        !thumbFailed &&
+        (showBoxes ? (
           <BoundingBoxOverlay
             src={thumbnail}
             objects={analysis.objects}
@@ -41,24 +57,40 @@ export function AnalysisCardMessage({ analysis }: { analysis: InlineAnalysis }) 
             onError={() => setThumbFailed(true)}
             className="max-h-72 w-full rounded-xl border border-ink-200 object-contain dark:border-ink-800"
           />
-        )
+        ))
       )}
 
       <p className="text-[15px] leading-relaxed text-ink-700 dark:text-ink-200">
         {analysis.description}
       </p>
 
-      <SceneBadge
-        label={analysis.sceneLabel}
-        confidence={analysis.sceneConfidence}
-        indoor={analysis.indoor}
-      />
+      <div className="flex flex-wrap items-center gap-2">
+        <SceneBadge
+          label={analysis.sceneLabel}
+          confidence={analysis.sceneConfidence}
+          indoor={analysis.indoor}
+        />
+        {analysis.music && <MusicBadge music={analysis.music} />}
+      </div>
 
-      {/* Chronologie vidéo. */}
+      {/* Chronologie vidéo — cliquable quand le lecteur est présent (saute au segment). */}
       {analysis.timeline && analysis.timeline.length > 0 && (
         <div>
           <h4 className="eyebrow mb-2">{t('timeline.title')}</h4>
-          <VideoTimeline timeline={analysis.timeline} />
+          <VideoTimeline
+            timeline={analysis.timeline}
+            onSeek={hasPlayer ? (time) => seekRef.current?.(time) : undefined}
+          />
+        </div>
+      )}
+
+      {/* Transcription de la piste audio (vidéos). */}
+      {analysis.audioTranscript && (
+        <div>
+          <h4 className="eyebrow mb-2">{t('transcript.title')}</h4>
+          <blockquote className="rounded-xl border-l-2 border-brand-400 bg-ink-50 px-3.5 py-2.5 text-sm italic leading-relaxed text-ink-600 dark:bg-ink-800/60 dark:text-ink-300">
+            {analysis.audioTranscript}
+          </blockquote>
         </div>
       )}
 
