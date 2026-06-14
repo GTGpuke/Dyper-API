@@ -1,6 +1,7 @@
-// Lecteur vidéo annoté : rejoue la vidéo originale avec les cadres de détection superposés,
-// synchronisés sur les frames analysées (couleur stable par piste trackée). Contrôles complets :
-// lecture, barre de seek, pas avant/arrière d'un échantillon, vitesse, son, bascule des cadres.
+// Lecteur vidéo annoté : rejoue la vidéo originale avec les cadres de détection superposés.
+// Les boîtes des objets suivis (trackId) sont INTERPOLÉES entre deux échantillons et maintenues
+// brièvement lors d'un trou de détection → elles suivent l'objet en continu sans clignoter
+// (couleur stable par piste). Contrôles complets : lecture, seek, pas image, vitesse, son, cadres.
 import { useCallback, useEffect, useMemo, useRef, useState, type MutableRefObject } from 'react'
 import { useI18n } from '../../contexts/I18nContext'
 import { cn } from '../../lib/cn'
@@ -20,6 +21,14 @@ const TRACK_COLORS = [
 ]
 
 const SPEEDS = [0.5, 1, 1.5, 2]
+
+// Volume persisté entre les sessions/visionnages (clé partagée par tous les lecteurs).
+const VOLUME_KEY = 'dyper.player.volume'
+
+function loadVolume(): number {
+  const raw = Number(localStorage.getItem(VOLUME_KEY))
+  return Number.isFinite(raw) && raw >= 0 && raw <= 1 ? raw : 1
+}
 
 interface Props {
   src: string
@@ -48,6 +57,99 @@ function activeFrameIndex(frames: FrameDetections[], time: number): number {
   return best
 }
 
+interface BoxCoords {
+  x: number
+  y: number
+  w: number
+  h: number
+}
+
+interface TrackSample {
+  t: number
+  box: BoxCoords
+  label: string
+}
+
+interface RenderBox {
+  key: string
+  color: string
+  label: string
+  trackId: number | null
+  box: BoxCoords
+}
+
+function lerp(a: number, b: number, f: number): number {
+  return a + (b - a) * f
+}
+
+// Boîtes à afficher à l'instant `time`. Les objets suivis sont interpolés entre l'échantillon
+// précédent et le suivant (mouvement fluide, trous de détection courts comblés) puis maintenus
+// brièvement après leur dernière détection (anti-clignotement) ; les objets sans piste sont
+// repliés sur la frame échantillonnée la plus proche. `sampleStep` = pas médian entre frames.
+function computeRenderBoxes(
+  tracks: Map<number, TrackSample[]>,
+  active: FrameDetections | null,
+  time: number,
+  sampleStep: number
+): RenderBox[] {
+  const maxBridge = sampleStep * 3 // Interpole (donc comble) jusqu'à ~2 échantillons manquants.
+  const carry = sampleStep * 1.5 // Maintien d'une piste après sa dernière détection.
+  const out: RenderBox[] = []
+
+  for (const [trackId, samples] of tracks) {
+    let prev: TrackSample | null = null
+    let next: TrackSample | null = null
+    for (const sample of samples) {
+      if (sample.t <= time) prev = sample
+      else {
+        next = sample
+        break
+      }
+    }
+    let box: BoxCoords | null = null
+    let label = ''
+    if (prev && next && next.t - prev.t <= maxBridge) {
+      const span = next.t - prev.t
+      const f = span > 0 ? (time - prev.t) / span : 0
+      box = {
+        x: lerp(prev.box.x, next.box.x, f),
+        y: lerp(prev.box.y, next.box.y, f),
+        w: lerp(prev.box.w, next.box.w, f),
+        h: lerp(prev.box.h, next.box.h, f),
+      }
+      label = (f < 0.5 ? prev : next).label
+    } else if (prev && time - prev.t <= carry) {
+      box = prev.box
+      label = prev.label
+    }
+    if (box) {
+      out.push({
+        key: `t${trackId}`,
+        color: TRACK_COLORS[trackId % TRACK_COLORS.length],
+        label,
+        trackId,
+        box,
+      })
+    }
+  }
+
+  // Objets sans piste (vocabulaire ouvert seul) : repli sur la frame échantillonnée la plus proche.
+  if (active) {
+    active.objects.forEach((obj, index) => {
+      if (obj.trackId != null || !obj.boundingBox) return
+      out.push({
+        key: `u${index}-${obj.label}`,
+        color: TRACK_COLORS[index % TRACK_COLORS.length],
+        label: obj.label,
+        trackId: null,
+        box: obj.boundingBox,
+      })
+    })
+  }
+
+  return out
+}
+
 export function VideoPlayer({ src, frames, sourceWidth, sourceHeight, className, seekRef }: Props) {
   const { t } = useI18n()
   const videoRef = useRef<HTMLVideoElement>(null)
@@ -57,7 +159,14 @@ export function VideoPlayer({ src, frames, sourceWidth, sourceHeight, className,
   const [duration, setDuration] = useState(0)
   const [speed, setSpeed] = useState(1)
   const [muted, setMuted] = useState(false)
+  const [volume, setVolume] = useState(loadVolume)
   const [showBoxes, setShowBoxes] = useState(true)
+
+  // Applique et persiste le volume (l'élément <video> ne lit pas l'attribut, il faut le piloter).
+  useEffect(() => {
+    if (videoRef.current) videoRef.current.volume = volume
+    localStorage.setItem(VOLUME_KEY, String(volume))
+  }, [volume])
 
   // Pas d'échantillonnage (médiane des écarts) pour la navigation frame analysée par frame.
   const sampleStep = useMemo(() => {
@@ -67,6 +176,21 @@ export function VideoPlayer({ src, frames, sourceWidth, sourceHeight, className,
       .map((frame, i) => frame.t - frames[i].t)
       .sort((a, b) => a - b)
     return gaps[Math.floor(gaps.length / 2)] || 1
+  }, [frames])
+
+  // Trajectoire par piste (trackId → échantillons triés dans le temps), construite une seule fois.
+  const tracks = useMemo(() => {
+    const map = new Map<number, TrackSample[]>()
+    for (const frame of frames) {
+      for (const obj of frame.objects) {
+        if (obj.trackId == null || !obj.boundingBox) continue
+        const sample: TrackSample = { t: frame.t, box: obj.boundingBox, label: obj.label }
+        const arr = map.get(obj.trackId)
+        if (arr) arr.push(sample)
+        else map.set(obj.trackId, [sample])
+      }
+    }
+    return map
   }, [frames])
 
   // Boucle rAF pendant la lecture : les cadres suivent le temps réel (timeupdate est trop lent).
@@ -112,12 +236,13 @@ export function VideoPlayer({ src, frames, sourceWidth, sourceHeight, className,
 
   const active = frames.length > 0 ? frames[activeFrameIndex(frames, currentTime)] : null
   const hasDims = Boolean(sourceWidth && sourceHeight)
+  // Boîtes interpolées/maintenues à l'instant courant (recalculées à chaque frame de rendu).
+  const renderBoxes = hasDims ? computeRenderBoxes(tracks, active, currentTime, sampleStep) : []
 
   return (
     <div className={cn('overflow-hidden rounded-xl bg-ink-950', className)}>
       {/* Vidéo + calque des cadres (l'élément suit le ratio natif : pas de letterbox). */}
       <div className="relative">
-        {/* biome-ignore lint/a11y/useMediaCaption: vidéo utilisateur, sans piste de sous-titres. */}
         <video
           ref={videoRef}
           src={src}
@@ -129,31 +254,34 @@ export function VideoPlayer({ src, frames, sourceWidth, sourceHeight, className,
           onPlay={() => setPlaying(true)}
           onPause={() => setPlaying(false)}
           onEnded={() => setPlaying(false)}
-          onLoadedMetadata={(e) => setDuration(e.currentTarget.duration || 0)}
+          onLoadedMetadata={(e) => {
+            setDuration(e.currentTarget.duration || 0)
+            e.currentTarget.volume = volume
+          }}
           onTimeUpdate={(e) => {
             if (!playing) setCurrentTime(e.currentTarget.currentTime)
           }}
-        />
-        {showBoxes && hasDims && active && (
+        >
+          {/* Vidéo utilisateur sans sous-titres : piste vide pour l'accessibilité. */}
+          <track kind="captions" />
+        </video>
+        {showBoxes && renderBoxes.length > 0 && (
           <div className="pointer-events-none absolute inset-0">
-            {active.objects.map((obj, index) => {
-              if (!obj.boundingBox) return null
-              const color = TRACK_COLORS[(obj.trackId ?? index) % TRACK_COLORS.length]
+            {renderBoxes.map((rb) => {
               // Le label reste dans le cadre vidéo : à l'intérieur de la boîte près du bord
               // supérieur, ancré à droite près du bord droit (sinon il serait coupé).
-              const nearTop = obj.boundingBox.y / (sourceHeight as number) < 0.06
-              const nearRight =
-                (obj.boundingBox.x + obj.boundingBox.w) / (sourceWidth as number) > 0.85
+              const nearTop = rb.box.y / (sourceHeight as number) < 0.06
+              const nearRight = (rb.box.x + rb.box.w) / (sourceWidth as number) > 0.85
               return (
                 <div
-                  key={`${obj.trackId ?? obj.label}-${index}`}
+                  key={rb.key}
                   className="absolute rounded-sm border-2"
                   style={{
-                    borderColor: color,
-                    left: `${(obj.boundingBox.x / (sourceWidth as number)) * 100}%`,
-                    top: `${(obj.boundingBox.y / (sourceHeight as number)) * 100}%`,
-                    width: `${(obj.boundingBox.w / (sourceWidth as number)) * 100}%`,
-                    height: `${(obj.boundingBox.h / (sourceHeight as number)) * 100}%`,
+                    borderColor: rb.color,
+                    left: `${(rb.box.x / (sourceWidth as number)) * 100}%`,
+                    top: `${(rb.box.y / (sourceHeight as number)) * 100}%`,
+                    width: `${(rb.box.w / (sourceWidth as number)) * 100}%`,
+                    height: `${(rb.box.h / (sourceHeight as number)) * 100}%`,
                   }}
                 >
                   <span
@@ -162,10 +290,10 @@ export function VideoPlayer({ src, frames, sourceWidth, sourceHeight, className,
                       nearTop ? 'top-0' : '-top-5',
                       nearRight ? 'right-0' : 'left-0'
                     )}
-                    style={{ backgroundColor: color }}
+                    style={{ backgroundColor: rb.color }}
                   >
-                    {obj.label}
-                    {obj.trackId !== null && obj.trackId !== undefined && ` #${obj.trackId}`}
+                    {rb.label}
+                    {rb.trackId !== null && ` #${rb.trackId}`}
                   </span>
                 </div>
               )
@@ -245,14 +373,14 @@ export function VideoPlayer({ src, frames, sourceWidth, sourceHeight, className,
           {speed}×
         </button>
 
-        {/* Son. */}
+        {/* Son : bascule muet + curseur de volume (persisté dans le navigateur). */}
         <button
           type="button"
           onClick={() => setMuted((m) => !m)}
           aria-label={muted ? t('player.unmute') : t('player.mute')}
           className="grid h-8 w-8 place-items-center rounded-lg hover:bg-white/10"
         >
-          {muted ? (
+          {muted || volume === 0 ? (
             <svg className="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
               <path d="M11 5L6 9H2v6h4l5 4V5zM23 9l-6 6M17 9l6 6" strokeLinecap="round" strokeLinejoin="round" />
             </svg>
@@ -262,6 +390,22 @@ export function VideoPlayer({ src, frames, sourceWidth, sourceHeight, className,
             </svg>
           )}
         </button>
+        <input
+          type="range"
+          min={0}
+          max={1}
+          step={0.01}
+          value={muted ? 0 : volume}
+          onChange={(e) => {
+            const next = Number(e.target.value)
+            setVolume(next)
+            // Glisser le curseur règle le son : on lève le muet dès que le volume devient audible.
+            if (next > 0 && muted) setMuted(false)
+          }}
+          aria-label={t('player.volume')}
+          title={t('player.volume')}
+          className="h-1.5 w-16 cursor-pointer appearance-none rounded-full bg-white/20 accent-brand-500"
+        />
 
         {/* Bascule de l'affichage des cadres. */}
         <button

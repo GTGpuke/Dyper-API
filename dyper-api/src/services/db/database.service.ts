@@ -63,12 +63,23 @@ async function ensureSchemaUpgrades(): Promise<void> {
   await ensureColumn('analysis', 'frame_detections', 'JSON DEFAULT NULL');
   await ensureColumn('analysis', 'music', 'JSON DEFAULT NULL');
   await ensureColumn('analysis', 'transcript_segments', 'JSON DEFAULT NULL');
-  await ensureColumn('analysis', 'chapters', 'JSON DEFAULT NULL');
 
-  // Tables des conversations : créées même en production (sync sans alter = CREATE IF NOT EXISTS).
-  const { Conversation, Message } = await import('../../models');
+  // Tables créées même en production (sync sans alter = CREATE TABLE IF NOT EXISTS) :
+  // conversations/messages et feed public « Global » (publications, votes, commentaires, signalements).
+  const {
+    Conversation,
+    Message,
+    Publication,
+    PublicationVote,
+    PublicationComment,
+    PublicationReport,
+  } = await import('../../models');
   await Conversation.sync();
   await Message.sync();
+  await Publication.sync();
+  await PublicationVote.sync();
+  await PublicationComment.sync();
+  await PublicationReport.sync();
 }
 
 // Vérifie que la connexion à la base de données est opérationnelle.

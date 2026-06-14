@@ -146,3 +146,39 @@ export class InternalError extends AppError {
     super('Une erreur interne est survenue.', 'INTERNAL_ERROR', 500, details);
   }
 }
+
+/** Contenu jugé sensible (explicite ou suggestif), refusé à la publication (422). */
+export class NsfwContentBlockedError extends AppError {
+  constructor(details: ErrorDetails = {}) {
+    super(
+      'Ce contenu a été jugé sensible et ne peut pas être publié sur le feed public.',
+      'NSFW_CONTENT_BLOCKED',
+      422,
+      details
+    );
+  }
+}
+
+/** Commentaire rejeté par la modération automatique (422). */
+export class CommentRejectedError extends AppError {
+  constructor(details: ErrorDetails = {}) {
+    super(
+      'Ce commentaire a été rejeté par la modération automatique.',
+      'COMMENT_REJECTED',
+      422,
+      details
+    );
+  }
+}
+
+/** Modération automatique indisponible — action bloquée par sécurité (503). */
+export class ModerationUnavailableError extends AppError {
+  constructor(details: ErrorDetails = {}) {
+    super(
+      'La modération automatique est momentanément indisponible. Veuillez réessayer plus tard.',
+      'MODERATION_UNAVAILABLE',
+      503,
+      details
+    );
+  }
+}

@@ -154,43 +154,56 @@ async def describe_and_extract(
     return await _call_and_parse(content, max_tokens=1024)
 
 
-async def describe_segment(
-    images: list[Image.Image],
+async def synthesize_description(
+    visual_summary: str,
+    detections_summary: str | None,
+    transcript: str | None,
+    music_summary: str | None,
     lang: str,
-    transcript_slice: str | None,
-) -> VisionAnalysis | None:
-    """Analyse vision courte d'un chapitre vidéo : 1-2 phrases + éléments visibles.
+) -> str | None:
+    """Refait UNE description vidéo cohérente à partir de toutes les sources, par priorité.
 
-    Utilisée par segments temporels pour aligner ce qu'on voit avec ce qu'on entend.
-    Retourne None sur tout échec (le chapitre reste alors sans description).
+    Hiérarchie décroissante : le compte rendu visuel global fait foi ; la détection (objets +
+    positions) ajoute la précision spatiale et quantitative ; l'audio donne le contexte parlé ;
+    la musique l'ambiance (titre cité). Le modèle ne contredit pas le visuel et n'invente rien.
+    Retourne None si la compréhension multimodale est indisponible ou en cas d'échec (l'appelant
+    conserve alors le compte rendu visuel d'origine).
     """
-    if not is_available() or not images:
+    if not is_available() or not visual_summary:
         return None
 
     response_lang = "anglais" if lang == "en" else "français"
     parts = [
-        "Tu es un analyste visuel. Tu reçois une ou deux images d'un court segment de vidéo.",
-        f"Décris en 1 à 2 phrases ({response_lang}) ce qui se passe sur ce segment précis.",
-        "Ne décris que ce qui est réellement visible — n'invente rien.",
+        "Tu es un narrateur qui DÉCRIT une vidéo à un spectateur (jamais l'analyse technique). "
+        "À partir des sources ci-dessous, par ordre de priorité décroissant, rédige UNE seule "
+        "description fluide et naturelle.",
+        f"1) RÉFÉRENCE PRIORITAIRE — ce qu'on voit (compte rendu visuel global) : « {visual_summary} »",
     ]
-    if transcript_slice:
-        parts.append(f"Paroles entendues sur ce segment : « {transcript_slice} ».")
-    parts.append(
-        "Termine ta réponse par une seule ligne :\n"
-        "ELEMENTS: <3 à 10 éléments visibles, groupes nominaux ANGLAIS courts (1 à 3 mots), "
-        "séparés par des virgules>"
-    )
-
-    # Une seule image réduite par segment : divise par ~3 le coût en tokens (le palier
-    # gratuit Groq est limité en tokens/minute, et les chapitres multiplient les appels).
-    content: list[dict[str, Any]] = [{"type": "text", "text": " ".join(parts)}]
-    for image in images[:1]:
-        data_url = "data:image/jpeg;base64," + to_thumbnail_base64(
-            image, max_dim=settings.VISION_SEGMENT_IMAGE_MAX_DIM
+    if detections_summary:
+        parts.append(
+            f"2) Indice interne sur les objets et leur disposition générale : {detections_summary}"
         )
-        content.append({"type": "image_url", "image_url": {"url": data_url}})
-
-    return await _call_and_parse(content, max_tokens=300)
+    if transcript:
+        parts.append(f"3) Ce qu'on entend (transcription audio) : « {transcript} »")
+    if music_summary:
+        parts.append(f"4) Bande-son identifiée : {music_summary}")
+    parts.append(
+        "Règles : le compte rendu visuel fait FOI (ne le contredis jamais, n'invente rien). "
+        "La liste d'objets n'est qu'un INDICE pour le nombre et la disposition générale "
+        "(ex. « plusieurs camions sur la voie de gauche ») : ne cite JAMAIS de position d'écran, "
+        "d'horodatage ni de durée en secondes, et bannis tout jargon d'analyse (« détecté », "
+        "« à l'écran », « dans les images », « piste »). Intègre l'audio brièvement s'il éclaire "
+        "la scène, sans disserter sur son lien ; cite le titre de la musique si fourni. Ne reprends "
+        "un texte lisible (marque, enseigne) que s'il est net et porteur de sens, en ignorant les "
+        "suites de lettres douteuses. Sois concret et sans répétition (chaque objet ou idée une "
+        "seule fois) ; concentre-toi sur le sujet principal et l'action, l'arrière-plan en une "
+        "touche s'il est pertinent."
+    )
+    parts.append(
+        f"Rends une description fluide en prose ({response_lang}), 90 à 160 mots, sans titre, "
+        "sans liste, sans préfixe ni méta-commentaire."
+    )
+    return await _complete([{"type": "text", "text": " ".join(parts)}], max_tokens=600)
 
 
 # Nombre de tentatives par appel vision (le palier gratuit Groq limite les tokens/minute).
@@ -213,11 +226,11 @@ def _retry_delay(exc: Exception, attempt: int) -> float:
     return float(2**attempt)
 
 
-async def _call_and_parse(content: list[dict[str, Any]], max_tokens: int) -> VisionAnalysis | None:
-    """Appelle le modèle vision et parse la réponse structurée. None sur tout échec.
+async def _complete(content: list[dict[str, Any]], max_tokens: int) -> str | None:
+    """Appelle le modèle Groq (texte ou multimodal) et retourne le texte brut. None sur tout échec.
 
-    Les erreurs de limite de débit (429) sont réessayées avec le délai suggéré par
-    l'API — indispensable sur le palier gratuit Groq quand les chapitres sont nombreux.
+    Les erreurs de limite de débit (429) sont réessayées avec le délai suggéré par l'API —
+    indispensable sur le palier gratuit Groq quand les appels se multiplient (chapitres, synthèse).
     """
     for attempt in range(_MAX_ATTEMPTS):
         try:
@@ -228,19 +241,22 @@ async def _call_and_parse(content: list[dict[str, Any]], max_tokens: int) -> Vis
                 timeout=settings.VISION_TIMEOUT_S,
                 messages=[{"role": "user", "content": content}],
             )
-            raw = (completion.choices[0].message.content or "").strip()
-            if not raw:
-                return None
-            analysis = _parse_structured(raw)
-            return analysis if analysis.description else None
+            return (completion.choices[0].message.content or "").strip() or None
         except Exception as exc:  # noqa: BLE001 — best-effort : tout échec déclenche le repli.
             if _is_rate_limited(exc) and attempt < _MAX_ATTEMPTS - 1:
                 delay = _retry_delay(exc, attempt)
                 logger.info(f"Limite de débit Groq atteinte : nouvelle tentative dans {delay} s.")
                 await asyncio.sleep(delay)
                 continue
-            logger.warning(
-                f"Compréhension vision indisponible, repli sur le pipeline local : {exc}"
-            )
+            logger.warning(f"Appel Groq indisponible, repli sur le pipeline local : {exc}")
             return None
     return None
+
+
+async def _call_and_parse(content: list[dict[str, Any]], max_tokens: int) -> VisionAnalysis | None:
+    """Appelle le modèle vision puis sépare le compte rendu des lignes structurées (None si échec)."""
+    raw = await _complete(content, max_tokens)
+    if not raw:
+        return None
+    analysis = _parse_structured(raw)
+    return analysis if analysis.description else None

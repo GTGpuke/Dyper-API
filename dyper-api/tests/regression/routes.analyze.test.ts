@@ -106,6 +106,37 @@ describe('POST /api/analyze/url', () => {
   });
 });
 
+describe('POST /api/analyze/thumbnail', () => {
+  it('retourne la miniature résolue pour une URL de plateforme', async () => {
+    jest
+      .spyOn(aiService, 'resolveThumbnail')
+      .mockResolvedValue('https://img.youtube.com/vi/abc/hqdefault.jpg');
+    const res = await app.inject({
+      method: 'POST',
+      url: '/api/analyze/thumbnail',
+      headers: auth.headers,
+      payload: { url: 'https://youtu.be/abc' },
+    });
+    expect(res.statusCode).toBe(200);
+    const body = res.json();
+    expect(body.success).toBe(true);
+    expect(body.thumbnailUrl).toBe('https://img.youtube.com/vi/abc/hqdefault.jpg');
+  });
+
+  it('retourne null sans résoudre pour une URL non-plateforme', async () => {
+    const spy = jest.spyOn(aiService, 'resolveThumbnail');
+    const res = await app.inject({
+      method: 'POST',
+      url: '/api/analyze/thumbnail',
+      headers: auth.headers,
+      payload: { url: 'https://example.com/image.jpg' },
+    });
+    expect(res.statusCode).toBe(200);
+    expect(res.json().thumbnailUrl).toBeNull();
+    expect(spy).not.toHaveBeenCalled();
+  });
+});
+
 // Construit un corps multipart/form-data minimal contenant un seul fichier.
 function multipartFile(content: Buffer, filename: string, contentType: string) {
   const boundary = '----dypertestboundary';

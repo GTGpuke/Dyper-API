@@ -20,7 +20,6 @@ def _runner_with_mock_model(clip_device: str = "cpu") -> tuple[WorldRunner, Magi
     clip_wrapper.device = "périmé"
     model.model.clip_model = clip_wrapper
     model.predict.return_value = ["résultats"]
-    model.track.return_value = ["résultats"]
     runner.model = model
     return runner, model
 
@@ -54,13 +53,8 @@ class TestWorldRunner:
         runner.detect_classes(MagicMock(), ["person"])
         assert str(model.model.clip_model.device) == "cpu"
 
-    def test_predict_sans_persist_track_avec(self):
-        """Vérifie l'aiguillage : persist=None → predict, persist fourni → track."""
+    def test_detection_simple_sans_suivi(self):
+        """Vérifie que la détection passe par predict (sans suivi : COCO porte l'identité)."""
         runner, model = _runner_with_mock_model()
         runner.detect_classes(MagicMock(), ["person"])
         model.predict.assert_called_once()
-        model.track.assert_not_called()
-
-        runner.detect_classes(MagicMock(), ["person"], persist=False)
-        model.track.assert_called_once()
-        assert model.track.call_args.kwargs["persist"] is False

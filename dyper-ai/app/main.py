@@ -5,7 +5,7 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 
 from app.config import settings
-from app.routes import health, process
+from app.routes import health, moderate, process, thumbnail
 from app.services.world_runner import WorldRunner
 from app.services.yolo_runner import YoloRunner
 from app.utils.logger import get_logger
@@ -51,4 +51,6 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(title="dyper-ai", version="1.0.0", lifespan=lifespan)
 app.include_router(process.router)
+app.include_router(moderate.router)
+app.include_router(thumbnail.router)
 app.include_router(health.router)

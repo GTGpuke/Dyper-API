@@ -1,6 +1,7 @@
 // Routes de consultation de l'historique des analyses, exposées sous /api/analyses.
 import type { FastifyInstance } from 'fastify';
 import {
+  deleteAnalysis,
   getAllAnalyses,
   getAnalysisById,
   getChatHistory,
@@ -48,6 +49,19 @@ export async function analysisRoutes(app: FastifyInstance): Promise<void> {
       },
     },
     getAnalysisById
+  );
+
+  // DELETE /api/analyses/:id — supprime une analyse et ses données liées (chat + médias).
+  app.delete<{ Params: { id: string } }>(
+    '/:id',
+    {
+      schema: {
+        tags: ['Analyses'],
+        summary: 'Supprime une analyse, ses échanges de chat liés et ses médias',
+        params: { type: 'object', required: ['id'], properties: { id: { type: 'string' } } },
+      },
+    },
+    deleteAnalysis
   );
 
   // GET /api/analyses/:requestId/chat — échanges de chat liés à une analyse.

@@ -124,7 +124,7 @@ export function DocsLayout() {
           </svg>
         </button>
 
-        <Link to="/api-docs" className="flex shrink-0 items-center gap-2.5">
+        <Link to="/" className="flex shrink-0 items-center gap-2.5">
           <img src={logo} alt="" className="h-8 w-8 rounded-lg object-contain" />
           <span className="font-bold tracking-tight text-ink-900 dark:text-ink-50">
             Dyper AI <span className="font-normal text-ink-400 dark:text-ink-500">Docs</span>

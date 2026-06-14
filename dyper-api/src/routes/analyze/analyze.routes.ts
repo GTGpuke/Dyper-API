@@ -4,6 +4,7 @@ import {
   analyzeFile,
   analyzePrompt,
   analyzeUrl,
+  resolveThumbnail,
 } from '../../controllers/analyze/analyze.controller';
 
 export async function analyzeRoutes(app: FastifyInstance): Promise<void> {
@@ -40,6 +41,26 @@ export async function analyzeRoutes(app: FastifyInstance): Promise<void> {
       },
     },
     analyzeUrl
+  );
+
+  // POST /api/analyze/thumbnail — miniature d'une vidéo de plateforme (aperçu, best-effort).
+  app.post<{ Body: { url: string } }>(
+    '/thumbnail',
+    {
+      schema: {
+        tags: ['Analyze'],
+        summary: 'Résout la miniature d’une vidéo de plateforme (aperçu)',
+        body: {
+          type: 'object',
+          required: ['url'],
+          additionalProperties: false,
+          properties: {
+            url: { type: 'string', pattern: '^https?://', maxLength: 2048 },
+          },
+        },
+      },
+    },
+    resolveThumbnail
   );
 
   // POST /api/analyze/prompt — analyse d'un prompt textuel seul.

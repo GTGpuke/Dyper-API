@@ -42,9 +42,13 @@ def _run_extract(cap: MagicMock):
 class TestPipelineVideo:
     """Tests du pipeline extract_frames() avec des vidéos simulées."""
 
-    def test_extract_frames_retourne_images_et_timestamps(self):
+    def test_extract_frames_retourne_images_et_timestamps(self, monkeypatch):
         """Vérifie que extract_frames retourne des couples (image PIL, horodatage croissant)."""
-        # 50 frames à 10 fps → durée 5 s → ~15 images à la cadence 3/s.
+        from app.config import settings
+
+        # Cadence fixée pour tester la logique d'échantillonnage indépendamment du défaut.
+        monkeypatch.setattr(settings, "VIDEO_SAMPLE_FPS", 3.0)
+        # 50 frames à 10 fps → durée 5 s → 15 images à la cadence 3/s.
         frames = _run_extract(_mock_cap(total_frames=50, fps=10))
         assert isinstance(frames, list)
         assert all(isinstance(f, Image.Image) for f, _t in frames)
@@ -60,15 +64,25 @@ class TestPipelineVideo:
         frames = _run_extract(_mock_cap(total_frames=0, fps=30))
         assert frames == []
 
-    def test_cadence_trois_par_seconde_video_courte(self):
-        """Vérifie ~3 images/seconde sur une vidéo courte (40 frames à 10 fps → 4 s → 12 images)."""
+    def test_cadence_echantillonnage_video_courte(self, monkeypatch):
+        """Vérifie la cadence d'échantillonnage (fixée à 3/s : 40 frames à 10 fps → 4 s → 12 images)."""
+        from app.config import settings
+
+        monkeypatch.setattr(settings, "VIDEO_SAMPLE_FPS", 3.0)
         frames = _run_extract(_mock_cap(total_frames=40, fps=10))
         assert len(frames) == 12
 
-    def test_cadence_pleine_sur_duree_maximale(self):
-        """Vérifie qu'une vidéo de 5 min pile garde la cadence pleine (9000 à 30 fps → 900)."""
+    def test_plafond_frames_sur_duree_maximale(self, monkeypatch):
+        """Vérifie qu'une cible d'images supérieure au plafond est ramenée à VIDEO_MAX_FRAMES.
+
+        À 30 img/s sur 300 s la cible serait 9000 images ; le plafond la borne (au-delà,
+        l'échantillonnage se raréfie automatiquement).
+        """
+        from app.config import settings
+
+        monkeypatch.setattr(settings, "VIDEO_SAMPLE_FPS", 30.0)
         frames = _run_extract(_mock_cap(total_frames=9000, fps=30))
-        assert len(frames) == 900
+        assert len(frames) == settings.VIDEO_MAX_FRAMES
 
     def test_duree_trop_longue_leve_erreur(self):
         """Vérifie qu'une vidéo > 5 min lève VideoTooLongError (9000 frames à 25 fps = 360 s)."""
@@ -77,8 +91,11 @@ class TestPipelineVideo:
         with pytest.raises(VideoTooLongError):
             _run_extract(_mock_cap(total_frames=9000, fps=25))
 
-    def test_fps_invalide_utilise_repli(self):
-        """Vérifie le repli FPS (fps<=0) : 50 frames, repli 25 fps → 2 s → 6 images."""
+    def test_fps_invalide_utilise_repli(self, monkeypatch):
+        """Vérifie le repli FPS (fps<=0) : 50 frames, repli 25 fps → 2 s → 6 images (cadence 3/s)."""
+        from app.config import settings
+
+        monkeypatch.setattr(settings, "VIDEO_SAMPLE_FPS", 3.0)
         frames = _run_extract(_mock_cap(total_frames=50, fps=0))
         assert len(frames) == 6
 
@@ -109,9 +126,10 @@ class TestPipelineVideo:
             )
         assert res.status_code == 200
         data = res.json()
-        # Chronologie : une entrée par frame, horodatages préservés, labels du mock (person).
+        # Chronologie : une entrée par frame, horodatages préservés. COCO et le vocabulaire
+        # ouvert détectent tous deux « person » (fusionnés sous un même label dédupliqué).
         assert [e["t"] for e in data["timeline"]] == [0.0, 1.0, 2.0]
-        assert data["timeline"][0]["labels"] == ["person"]
+        assert "person" in data["timeline"][0]["labels"]
         # Détections par frame (lecteur annoté) : trackId stable issu du tracking mocké.
         assert len(data["frames"]) == 3
         assert data["frames"][0]["objects"][0]["trackId"] == 1
@@ -121,7 +139,7 @@ class TestPipelineVideo:
         assert (data["sourceWidth"], data["sourceHeight"]) == (60, 40)
         # Sans clés (défaut des tests) : ni transcription ni musique.
         assert data["audioTranscript"] is None
-        assert data["music"] is None
+        assert data["music"] == []
 
     def test_route_video_decrire_puis_ancrer_avec_audio_et_musique(self, client):
         """Vérifie le pipeline vidéo inversé : audio → vision → tracking à vocabulaire ouvert."""
@@ -147,7 +165,7 @@ class TestPipelineVideo:
                     return_value=(
                         "Bonjour à tous.",
                         [TranscriptSegment(start=0.0, end=2.0, text="Bonjour à tous.")],
-                        music,
+                        [music],
                     )
                 ),
             ),
@@ -168,78 +186,87 @@ class TestPipelineVideo:
         data = res.json()
         assert data["description"] == "Compte rendu vision détaillé de la vidéo."
         assert data["audioTranscript"] == "Bonjour à tous."
-        assert data["music"] == {"artist": "Daft Punk", "title": "Around the World", "album": None}
+        assert data["music"] == [
+            {"artist": "Daft Punk", "title": "Around the World", "album": None}
+        ]
         # L'audio est analysé AVANT la vision et lui est transmis (transcript + musique).
         assert vision_mock.call_args.kwargs["music_summary"] == "Daft Punk — Around the World"
         assert vision_mock.call_args.kwargs["transcript"] == "Bonjour à tous."
-        # Transcription horodatée présente ; chapitres absents (vision indisponible sans clé,
-        # la fonction describe_and_extract est mockée mais is_available reste False).
+        # Transcription horodatée présente dans la réponse.
         assert data["transcriptSegments"] == [{"start": 0.0, "end": 2.0, "text": "Bonjour à tous."}]
-        assert data["chapters"] is None
-        # Tracking à vocabulaire ouvert : labels alignés sur la vision, piste stable.
-        assert data["visualization"]["objects"][0]["label"] == "elephant"
+        # Fusion COCO + vocabulaire ouvert : COCO (« person », piste stable) et le détecteur
+        # à vocabulaire ouvert (« elephant », premier élément de la vision) coexistent.
+        labels = [obj["label"] for obj in data["visualization"]["objects"]]
+        assert "elephant" in labels
         assert data["frames"][0]["objects"][0]["trackId"] == 1
         assert data["visualization"]["scene"]["label"] == "enclos de zoo"
 
-    def test_route_video_chapitres_et_union_du_vocabulaire(self, client, mock_world):
-        """Vérifie les chapitres alignés audio/vision et l'union des vocabulaires."""
-        from unittest.mock import AsyncMock
+    def test_route_video_synthese_description_finale(self, client):
+        """Vérifie que la description finale est la synthèse Groq de toutes les sources."""
+        from unittest.mock import AsyncMock, patch
 
         import numpy as np
-        from app.schemas.response import TranscriptSegment
         from app.services.vision_llm import VisionAnalysis
 
-        # 50 frames sur 25 s → 2 fenêtres de chapitres (20 s par défaut).
-        fake_frames = [
-            (Image.fromarray(np.ones((40, 60, 3), dtype="uint8") * 100), round(i * 0.5, 2))
-            for i in range(50)
-        ]
-        global_vision = VisionAnalysis(
-            description="Compte rendu global.", elements=["elephant", "man"]
-        )
-        segment_vision = VisionAnalysis(
-            description="Un homme parle devant l'enclos.", elements=["man", "metal fence"]
-        )
-        segments = [TranscriptSegment(start=0.0, end=10.0, text="Bonjour à tous.")]
+        fake_frames = [(Image.fromarray(np.ones((40, 60, 3), dtype="uint8") * 100), 0.0)]
+        vision = VisionAnalysis(description="Compte rendu visuel global.", elements=["car"])
         with (
             patch("app.services.video.extract_frames_from_path", return_value=fake_frames),
             patch(
-                "app.routes.process.audio_service.analyze_audio",
-                new=AsyncMock(return_value=("Bonjour à tous.", segments, None)),
-            ),
-            patch("app.routes.process.vision_llm.is_available", return_value=True),
-            patch(
                 "app.routes.process.vision_llm.describe_and_extract",
-                new=AsyncMock(return_value=global_vision),
+                new=AsyncMock(return_value=vision),
             ),
             patch(
-                "app.routes.process.vision_llm.describe_segment",
-                new=AsyncMock(return_value=segment_vision),
-            ),
+                "app.routes.process.vision_llm.synthesize_description",
+                new=AsyncMock(return_value="Description finale synthétisée."),
+            ) as synth_mock,
         ):
             res = client.post(
                 "/process",
                 json={
-                    "requestId": "vid-chapitres",
+                    "requestId": "vid-synth",
                     "type": "video",
                     "videoBase64": base64.b64encode(b"x").decode(),
                 },
             )
         assert res.status_code == 200
         data = res.json()
+        # La synthèse multi-sources remplace le compte rendu visuel brut.
+        assert data["description"] == "Description finale synthétisée."
+        # La référence prioritaire transmise à la synthèse est le compte rendu visuel global.
+        assert synth_mock.call_args.args[0] == "Compte rendu visuel global."
 
-        # Deux chapitres : [0-20] avec transcription, [20-24.5] sans.
-        chapters = data["chapters"]
-        assert len(chapters) == 2
-        assert chapters[0]["tStart"] == 0.0
-        assert chapters[0]["description"] == "Un homme parle devant l'enclos."
-        assert chapters[0]["elements"] == ["man", "metal fence"]
-        assert chapters[0]["transcript"] == "Bonjour à tous."
-        assert chapters[1]["transcript"] is None
+    def test_route_video_vocabulaire_vision_globale(self, client, mock_world):
+        """Vérifie que le vocabulaire ouvert vient des éléments de la vision globale (sans chapitres)."""
+        from unittest.mock import AsyncMock
 
-        # Union des vocabulaires (global + chapitres, dédupliquée) transmise au détecteur.
+        import numpy as np
+        from app.services.vision_llm import VisionAnalysis
+
+        fake_frames = [(Image.fromarray(np.ones((40, 60, 3), dtype="uint8") * 100), 0.0)]
+        vision = VisionAnalysis(description="Compte rendu global.", elements=["elephant", "man"])
+        with (
+            patch("app.services.video.extract_frames_from_path", return_value=fake_frames),
+            patch(
+                "app.routes.process.vision_llm.describe_and_extract",
+                new=AsyncMock(return_value=vision),
+            ),
+        ):
+            res = client.post(
+                "/process",
+                json={
+                    "requestId": "vid-vocab",
+                    "type": "video",
+                    "videoBase64": base64.b64encode(b"x").decode(),
+                },
+            )
+        assert res.status_code == 200
+        data = res.json()
+        # Plus de chapitres dans la réponse (fonctionnalité retirée).
+        assert "chapters" not in data
+        # Vocabulaire ouvert = éléments de la vision globale en tête, suivis de la base étendue.
         called_vocab = mock_world.detect_classes.call_args.args[1]
-        assert called_vocab == ["elephant", "man", "metal fence"]
+        assert called_vocab[:2] == ["elephant", "man"]
 
     def test_route_video_par_url_plateforme(self, client, tmp_path):
         """Vérifie l'analyse par URL : téléchargement mocké, écho videoBase64 pour stockage."""

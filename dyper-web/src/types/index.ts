@@ -37,15 +37,6 @@ export interface TranscriptSegment {
   text: string
 }
 
-/** Chapitre d'analyse vidéo : ce qu'on voit et ce qu'on entend sur un intervalle. */
-export interface Chapter {
-  tStart: number
-  tEnd: number
-  description: string | null
-  elements: string[]
-  transcript: string | null
-}
-
 export interface Scene {
   label: string
   confidence: number
@@ -102,9 +93,8 @@ export interface AnalysisRecord {
   audio_transcript: string | null
   video_path: string | null
   frame_detections: FrameDetections[] | null
-  music: MusicInfo | null
+  music: MusicInfo[] | null
   transcript_segments: TranscriptSegment[] | null
-  chapters: Chapter[] | null
   created_at: string
 }
 
@@ -241,9 +231,8 @@ export interface InlineAnalysis {
   audioTranscript: string | null
   videoUrl: string | null
   frames: FrameDetections[] | null
-  music: MusicInfo | null
+  music: MusicInfo[] | null
   transcriptSegments: TranscriptSegment[] | null
-  chapters: Chapter[] | null
 }
 
 export interface ConversationMessage {
@@ -264,5 +253,86 @@ export type ClientMessage = ConversationMessage & {
 
 /** Pièce jointe en attente dans le composer ou le héros d'accueil. */
 export type PendingAttachment =
-  | { kind: 'file'; file: File; previewUrl: string | null; isVideo: boolean; durationS?: number }
-  | { kind: 'url'; url: string }
+  | {
+      kind: 'file'
+      file: File
+      previewUrl: string | null
+      thumbnailUrl: string | null
+      isVideo: boolean
+      durationS?: number
+    }
+  | { kind: 'url'; url: string; thumbnailUrl?: string | null }
+
+// ─── Feed public « Global » ──────────────────────────────────────────────────
+
+/** Vote sur une publication : +1, -1 ou 0 (aucun). */
+export type PublicVote = -1 | 0 | 1
+
+/** Tri du feed public. */
+export type FeedSort = 'hot' | 'new' | 'top'
+
+/** Auteur public (pseudo + avatar, jamais l'e-mail). */
+export interface PublicationAuthor {
+  name: string
+  avatar: string | null
+}
+
+/** Snapshot d'affichage figé d'une analyse publiée (exclut le chat de suivi). */
+export interface PublicationPayload {
+  description: string
+  model: string
+  lang: string
+  sceneLabel: string
+  sceneConfidence: number
+  indoor: boolean | null
+  objectsCount: number
+  tags: string[]
+  colors: string[]
+  sourceWidth: number | null
+  sourceHeight: number | null
+  timeline: TimelineEntry[] | null
+  objects: DetectedObject[] | null
+  frameDetections: FrameDetections[] | null
+  music: MusicInfo[] | null
+  transcriptSegments: TranscriptSegment[] | null
+  audioTranscript: string | null
+}
+
+/** Publication du feed public. */
+export interface Publication {
+  id: string
+  slug: string
+  type: AnalyzeType
+  caption: string | null
+  author: PublicationAuthor
+  payload: PublicationPayload
+  hasThumbnail: boolean
+  hasVideo: boolean
+  upvotes: number
+  downvotes: number
+  score: number
+  commentCount: number
+  myVote: PublicVote
+  /** Présent uniquement sur les réponses in-app : la publication appartient à l'utilisateur courant. */
+  isMine?: boolean
+  createdAt: string
+}
+
+/** Commentaire en fil d'une publication. */
+export interface PublicationComment {
+  id: string
+  parentId: string | null
+  author: PublicationAuthor
+  body: string
+  /** Présent uniquement sur les réponses in-app : le commentaire appartient à l'utilisateur courant. */
+  isMine?: boolean
+  createdAt: string
+}
+
+/** Résultat d'un vote (compteurs recalculés). */
+export interface VoteResult {
+  score: number
+  upvotes: number
+  downvotes: number
+  myVote: PublicVote
+}

@@ -3,6 +3,24 @@
 from pydantic import BaseModel, Field
 
 
+class ModerationResponse(BaseModel):
+    """Verdict de modération : disponibilité du service et classification du contenu.
+
+    `rating` vaut « safe » / « suggestive » / « explicit » (image) ou « safe » / « toxic » /
+    « explicit » (texte), ou None si la classification n'a pas pu être déterminée. La passerelle
+    applique la politique (bloquer tout ce qui n'est pas « safe »).
+    """
+
+    available: bool = Field(..., description="Indique si la modération automatique est active.")
+    rating: str | None = Field(default=None, description="Classification du contenu (ou None).")
+
+
+class ThumbnailResponse(BaseModel):
+    """Miniature résolue pour une URL de vidéo de plateforme (None si indisponible)."""
+
+    thumbnailUrl: str | None = Field(default=None, description="URL de la miniature (ou None).")
+
+
 class BoundingBox(BaseModel):
     """Boîte englobante d'un objet détecté, exprimée en pixels (coin supérieur gauche + taille)."""
 
@@ -77,22 +95,6 @@ class TranscriptSegment(BaseModel):
     text: str = Field(..., description="Texte transcrit sur cette tranche.")
 
 
-class Chapter(BaseModel):
-    """Chapitre d'analyse vidéo : ce qu'on voit et ce qu'on entend sur un intervalle."""
-
-    tStart: float = Field(..., ge=0.0, description="Début du chapitre (secondes).")
-    tEnd: float = Field(..., ge=0.0, description="Fin du chapitre (secondes).")
-    description: str | None = Field(
-        default=None, description="Description visuelle courte du chapitre."
-    )
-    elements: list[str] = Field(
-        default_factory=list, description="Éléments visibles identifiés sur ce chapitre."
-    )
-    transcript: str | None = Field(
-        default=None, description="Tranche de transcription audio du chapitre."
-    )
-
-
 class ProcessResponse(BaseModel):
     """Réponse complète du pipeline de traitement dyper-ai."""
 
@@ -121,8 +123,8 @@ class ProcessResponse(BaseModel):
         default=None,
         description="Détections par frame échantillonnée (vidéos) — lecteur annoté.",
     )
-    music: MusicInfo | None = Field(
-        default=None, description="Bande-son identifiée (vidéos, si disponible)."
+    music: list[MusicInfo] = Field(
+        default_factory=list, description="Bandes-son identifiées (vidéos, multi-titres)."
     )
     videoBase64: str | None = Field(
         default=None,
@@ -130,8 +132,4 @@ class ProcessResponse(BaseModel):
     )
     transcriptSegments: list[TranscriptSegment] | None = Field(
         default=None, description="Transcription horodatée par tranches (vidéos)."
-    )
-    chapters: list[Chapter] | None = Field(
-        default=None,
-        description="Chapitres d'analyse alignés vision/audio/détection (vidéos).",
     )

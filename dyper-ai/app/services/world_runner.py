@@ -18,7 +18,7 @@ logger = get_logger(__name__)
 
 
 class WorldRunner:
-    """Encapsule YOLO-World : chargement, vocabulaire dynamique, détection et tracking."""
+    """Encapsule YOLO-World : chargement, vocabulaire dynamique et détection."""
 
     def __init__(self) -> None:
         """Initialise le runner sans charger le modèle en mémoire."""
@@ -61,14 +61,12 @@ class WorldRunner:
             self.model.set_classes(classes)
             self._current_classes = classes
 
-    def detect_classes(
-        self, image: Image.Image, classes: list[str], persist: bool | None = None
-    ) -> Any:
-        """Détecte les concepts demandés sur une image (tracking si `persist` est fourni).
+    def detect_classes(self, image: Image.Image, classes: list[str]) -> Any:
+        """Détecte les concepts demandés sur une image (prédiction simple, sans suivi).
 
-        `persist=None` → prédiction simple (image) ; `persist=False/True` → tracking vidéo
-        (False réinitialise le tracker sur la première frame). En cas de mémoire GPU
-        insuffisante, bascule automatiquement sur CPU et réessaie (journalisé).
+        Le suivi d'identité en vidéo est porté par COCO (cf. app/routes/process.py) ; ce
+        détecteur n'apporte que la couverture du vocabulaire ouvert, fusionnée spatialement.
+        En cas de mémoire GPU insuffisante, bascule automatiquement sur CPU et réessaie (journalisé).
         """
         if self.model is None:
             raise RuntimeError(
@@ -77,31 +75,26 @@ class WorldRunner:
         self._set_vocabulary(classes)
 
         try:
-            return self._run(image, persist)
+            return self._run(image)
         except RuntimeError as exc:
             if "out of memory" not in str(exc).lower():
                 raise
-            # VRAM insuffisante (ex. RTX 3050 sur grande image) : bascule CPU et réessai.
+            # VRAM insuffisante (GPU à faible mémoire sur grande image) : bascule CPU et réessai.
             logger.warning("Mémoire GPU insuffisante pour YOLO-World : bascule sur CPU.")
             import torch
 
             torch.cuda.empty_cache()
             self.model.to("cpu")
-            return self._run(image, persist)
+            return self._run(image)
 
-    def _run(self, image: Image.Image, persist: bool | None) -> Any:
-        """Exécute la prédiction ou le tracking et retourne les résultats bruts.
+    def _run(self, image: Image.Image) -> Any:
+        """Exécute la prédiction et retourne les résultats bruts.
 
         La résolution d'inférence est forcée à `WORLD_IMGSZ` (1280 par défaut) : la valeur
         implicite d'ultralytics (640) dégraderait la détection des petits objets.
         """
         assert self.model is not None  # Garanti par detect_classes.
-        conf = settings.WORLD_CONF_THRESHOLD
+        conf = settings.WORLD_DISPLAY_MIN_CONFIDENCE
         imgsz = settings.WORLD_IMGSZ
-        if persist is None:
-            results = self.model.predict(source=image, conf=conf, imgsz=imgsz, verbose=False)
-        else:
-            results = self.model.track(
-                source=image, conf=conf, imgsz=imgsz, persist=persist, verbose=False
-            )
+        results = self.model.predict(source=image, conf=conf, imgsz=imgsz, verbose=False)
         return results[0]

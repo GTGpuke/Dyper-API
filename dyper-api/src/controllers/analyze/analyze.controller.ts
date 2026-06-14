@@ -123,6 +123,17 @@ export async function analyzeUrl(
   sendResult(reply, requestId, processingTime, aiResponse, resolvedLang);
 }
 
+// POST /api/analyze/thumbnail — Miniature d'une vidéo de plateforme (aperçu composer, best-effort).
+export async function resolveThumbnail(
+  request: FastifyRequest<{ Body: { url: string } }>,
+  reply: FastifyReply
+): Promise<void> {
+  const { url } = request.body;
+  // Seules les URLs de plateforme vidéo (YouTube / Twitch) sont résolues ; sinon aucune miniature.
+  const thumbnailUrl = isVideoPlatformUrl(url) ? await aiService.resolveThumbnail(url) : null;
+  reply.status(200).send({ success: true, thumbnailUrl });
+}
+
 // POST /api/analyze/prompt — Analyse textuelle pure (sans média).
 export async function analyzePrompt(
   request: FastifyRequest<{ Body: { prompt: string; lang?: string } }>,

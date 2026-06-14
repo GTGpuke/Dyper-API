@@ -1,6 +1,8 @@
-// Liste des objets détectés avec barre de confiance, triés par score décroissant.
-import { ConfidenceBar } from '../ui/ConfidenceBar'
+// Liste des objets détectés avec pastille de couleur (accordée aux boîtes), barre de confiance,
+// triés par score décroissant.
 import type { DetectedObject } from '../../types'
+import { labelColor } from '../../utils/labelColor'
+import { ConfidenceBar } from '../ui/ConfidenceBar'
 
 export function ObjectList({
   objects,
@@ -21,11 +23,15 @@ export function ObjectList({
           onMouseEnter={() => onHover?.(i)}
           onMouseLeave={() => onHover?.(null)}
           className={
-            'flex items-center gap-4 py-2.5 transition-colors ' +
+            'flex items-center gap-3 py-2.5 transition-colors ' +
             (highlightIndex === i ? 'bg-brand-50/60 dark:bg-brand-600/10' : '')
           }
         >
-          <span className="w-32 shrink-0 truncate text-sm font-medium capitalize text-ink-700 dark:text-ink-200">
+          <span
+            className="h-2.5 w-2.5 shrink-0 rounded-full ring-1 ring-inset ring-black/10"
+            style={{ backgroundColor: labelColor(obj.label) }}
+          />
+          <span className="w-28 shrink-0 truncate text-sm font-medium capitalize text-ink-700 dark:text-ink-200">
             {obj.label}
           </span>
           <ConfidenceBar value={obj.confidence} className="flex-1" />

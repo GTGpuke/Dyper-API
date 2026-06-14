@@ -4,11 +4,11 @@ import { useState, type ReactNode } from 'react'
 import { Link, NavLink, useNavigate } from 'react-router-dom'
 import { useAuth } from '../../contexts/AuthContext'
 import { useI18n } from '../../contexts/I18nContext'
+import { useHealth } from '../../hooks/useHealth'
 import { usePlan } from '../../hooks/usePlan'
 import { cn } from '../../lib/cn'
 import logo from '../../assets/dyper-logo.svg'
 import { ConversationList } from '../chat/ConversationList'
-import { HealthBadge } from './HealthBadge'
 import { UserMenu } from './UserMenu'
 
 interface NavItem {
@@ -24,9 +24,20 @@ const NAV_ITEMS: NavItem[] = [
     icon: <path d="M12 8v4l3 3M3 12a9 9 0 1 0 9-9 9 9 0 0 0-9 9z" />,
   },
   {
-    to: '/dashboard',
-    labelKey: 'nav.dashboard',
-    icon: <path d="M4 13h6V4H4v9zm0 7h6v-5H4v5zm10 0h6V11h-6v9zm0-16v5h6V4h-6z" />,
+    to: '/global',
+    labelKey: 'nav.global',
+    icon: (
+      <>
+        <circle cx="12" cy="12" r="9" />
+        <path d="M3 12h18" />
+        <path d="M12 3c2.5 2.6 2.5 15.4 0 18M12 3c-2.5 2.6-2.5 15.4 0 18" />
+      </>
+    ),
+  },
+  {
+    to: '/status',
+    labelKey: 'nav.status',
+    icon: <path d="M3 12h4l3 8 4-16 3 8h4" />,
   },
   // Les Paramètres vivent dans le menu du profil (bloc utilisateur), pas dans la navigation.
   {
@@ -36,8 +47,28 @@ const NAV_ITEMS: NavItem[] = [
   },
 ]
 
-// Rangée de navigation : icône + libellé (style claude.ai).
-function NavRow({ item, label }: { item: NavItem; label: string }) {
+// Pastille de statut live affichée sur l'onglet Statut (vert/orange/rouge, gris si inconnu).
+function StatusDot() {
+  const health = useHealth()
+  const { t } = useI18n()
+  const tone = !health
+    ? 'unknown'
+    : health.status !== 'ok' || health.db !== 'ok'
+      ? 'down'
+      : health.ai !== 'ok'
+        ? 'partial'
+        : 'ok'
+  const cls = {
+    ok: 'bg-emerald-500',
+    partial: 'bg-amber-400',
+    down: 'bg-red-500',
+    unknown: 'bg-ink-300 dark:bg-ink-600',
+  }[tone]
+  return <span className={cn('h-2 w-2 shrink-0 rounded-full', cls)} title={t('nav.status')} />
+}
+
+// Rangée de navigation : icône + libellé (style claude.ai), avec élément de fin optionnel.
+function NavRow({ item, label, trailing }: { item: NavItem; label: string; trailing?: ReactNode }) {
   return (
     <NavLink
       to={item.to}
@@ -61,7 +92,8 @@ function NavRow({ item, label }: { item: NavItem; label: string }) {
       >
         {item.icon}
       </svg>
-      {label}
+      <span className="min-w-0 flex-1 truncate">{label}</span>
+      {trailing}
     </NavLink>
   )
 }
@@ -80,10 +112,7 @@ export function Sidebar() {
       {/* Logo. */}
       <Link to="/" className="mb-3 flex items-center gap-2.5 px-2">
         <img src={logo} alt="" className="h-9 w-9 rounded-xl object-contain" />
-        <div className="leading-tight">
-          <p className="font-bold tracking-tight text-ink-900 dark:text-ink-50">Dyper AI</p>
-          <p className="text-[11px] text-ink-400 dark:text-ink-500">{t('nav.tagline')}</p>
-        </div>
+        <p className="font-bold tracking-tight text-ink-900 dark:text-ink-50">Dyper AI</p>
       </Link>
 
       {/* Nouvelle conversation (rangée, style claude.ai). */}
@@ -103,7 +132,12 @@ export function Sidebar() {
       {/* Navigation à libellés. */}
       <nav className="flex flex-col gap-0.5 border-b border-ink-200/70 pb-3 dark:border-ink-800/70">
         {NAV_ITEMS.map((item) => (
-          <NavRow key={item.to} item={item} label={t(item.labelKey)} />
+          <NavRow
+            key={item.to}
+            item={item}
+            label={t(item.labelKey)}
+            trailing={item.to === '/status' ? <StatusDot /> : undefined}
+          />
         ))}
       </nav>
 
@@ -113,12 +147,8 @@ export function Sidebar() {
         <ConversationList />
       </div>
 
-      {/* Pied : santé, mise à niveau, bloc utilisateur avec forfait. */}
+      {/* Pied : mise à niveau, bloc utilisateur avec forfait. */}
       <div className="mt-3 flex flex-col gap-2 border-t border-ink-200/70 pt-3 dark:border-ink-800/70">
-        <div className="px-1">
-          <HealthBadge />
-        </div>
-
         {plan === 'free' && (
           <Link
             to="/pricing"

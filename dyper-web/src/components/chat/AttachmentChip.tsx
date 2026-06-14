@@ -14,11 +14,13 @@ export function AttachmentChip({
   const { t } = useI18n()
   const label =
     attachment.kind === 'file' ? attachment.file.name : attachment.url
+  // Vignette : première image (fichier vidéo), aperçu image, ou miniature de plateforme (URL).
+  const thumbnail = attachment.thumbnailUrl ?? null
 
   return (
     <div className="flex items-center gap-2 rounded-xl border border-ink-200 bg-ink-50 px-2 py-1.5 dark:border-ink-700 dark:bg-ink-800">
-      {attachment.kind === 'file' && attachment.previewUrl && !attachment.isVideo ? (
-        <img src={attachment.previewUrl} alt="" className="h-8 w-8 rounded-lg object-cover" />
+      {thumbnail ? (
+        <img src={thumbnail} alt="" className="h-8 w-8 rounded-lg object-cover" />
       ) : (
         <span className="grid h-8 w-8 place-items-center rounded-lg bg-ink-200 text-ink-500 dark:bg-ink-700 dark:text-ink-300">
           <svg className="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">

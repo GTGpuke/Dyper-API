@@ -2,7 +2,6 @@ import { DataTypes, Model, type Optional } from 'sequelize';
 import sequelize from '../services/db/database.service';
 import type {
   AnalyzeType,
-  Chapter,
   DetectedObject,
   FrameDetections,
   MusicInfo,
@@ -34,9 +33,8 @@ interface AnalysisAttributes {
   audio_transcript: string | null;
   video_path: string | null;
   frame_detections: FrameDetections[] | null;
-  music: MusicInfo | null;
+  music: MusicInfo[] | null;
   transcript_segments: TranscriptSegment[] | null;
-  chapters: Chapter[] | null;
   created_at: Date;
 }
 
@@ -55,7 +53,6 @@ type AnalysisCreationAttributes = Optional<
   | 'frame_detections'
   | 'music'
   | 'transcript_segments'
-  | 'chapters'
   | 'created_at'
 >;
 
@@ -85,9 +82,8 @@ class Analysis
   declare audio_transcript: string | null;
   declare video_path: string | null;
   declare frame_detections: FrameDetections[] | null;
-  declare music: MusicInfo | null;
+  declare music: MusicInfo[] | null;
   declare transcript_segments: TranscriptSegment[] | null;
-  declare chapters: Chapter[] | null;
   declare created_at: Date;
 }
 
@@ -117,7 +113,6 @@ Analysis.init(
     frame_detections: { type: DataTypes.JSON, allowNull: true, defaultValue: null },
     music: { type: DataTypes.JSON, allowNull: true, defaultValue: null },
     transcript_segments: { type: DataTypes.JSON, allowNull: true, defaultValue: null },
-    chapters: { type: DataTypes.JSON, allowNull: true, defaultValue: null },
     created_at: { type: DataTypes.DATE, allowNull: false, defaultValue: DataTypes.NOW },
   },
   {

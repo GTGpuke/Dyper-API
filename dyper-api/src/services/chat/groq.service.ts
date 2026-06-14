@@ -79,29 +79,12 @@ class GroqService {
       ? `\n\n**Transcription audio :** « ${context.audioTranscript} »`
       : '';
 
-    // Bande-son identifiée par fingerprinting (vidéos uniquement).
-    const musicText = context.music
-      ? `\n\n**Musique identifiée :** ${context.music.artist} — ${context.music.title}${
-          context.music.album ? ` (album : ${context.music.album})` : ''
-        }`
-      : '';
-
-    // Chapitres alignés vision/audio (vidéos uniquement) : permet de répondre précisément
-    // à « que se passe-t-il à tel moment ? ».
-    const formatTime = (s: number) =>
-      `${Math.floor(s / 60)}:${String(Math.round(s % 60)).padStart(2, '0')}`;
-    const chaptersText =
-      context.chapters && context.chapters.length > 0
-        ? `\n\n**Chapitres (vidéo) :**\n${context.chapters
-            .map((c) => {
-              const head = `- [${formatTime(c.tStart)}–${formatTime(c.tEnd)}]`;
-              const desc = c.description ?? 'sans description';
-              const elements =
-                c.elements.length > 0 ? ` (éléments : ${c.elements.join(', ')})` : '';
-              const transcript = c.transcript ? ` — « ${c.transcript} »` : '';
-              return `${head} ${desc}${elements}${transcript}`;
-            })
-            .join('\n')}`
+    // Bandes-son identifiées par fingerprinting (vidéos uniquement, multi-titres).
+    const musicText =
+      context.music && context.music.length > 0
+        ? `\n\n**Musique identifiée :** ${context.music
+            .map((m) => `${m.artist} — ${m.title}${m.album ? ` (album : ${m.album})` : ''}`)
+            .join(' ; ')}`
         : '';
 
     return `Tu es un assistant expert en analyse d'images. Une image a été analysée par le système Dyper (basé sur YOLO). Lorsque l'image est jointe au message, fonde tes réponses en priorité sur ce que tu VOIS réellement. Voici les résultats obtenus :
@@ -114,7 +97,7 @@ class GroqService {
 
 **Couleurs dominantes :** ${colors.join(', ') || 'Non disponibles'}
 
-**Tags :** ${tags.join(', ') || 'Aucun'}${timelineText}${transcriptText}${musicText}${chaptersText}
+**Tags :** ${tags.join(', ') || 'Aucun'}${timelineText}${transcriptText}${musicText}
 
 Réponds de manière concise et naturelle aux questions de l'utilisateur sur cette image et cette analyse. Réponds en ${responseLang}.`;
   }

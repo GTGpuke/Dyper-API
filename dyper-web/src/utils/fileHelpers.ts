@@ -27,6 +27,48 @@ export function validateFile(file: File): FileCheck {
   return { valid: true }
 }
 
+// Capture la première image d'une vidéo locale en vignette (data URL JPEG), entièrement côté
+// navigateur. Retourne null si la frame ne peut pas être extraite (format, délai dépassé).
+export function getVideoThumbnail(file: File): Promise<string | null> {
+  return new Promise((resolve) => {
+    const url = URL.createObjectURL(file)
+    const video = document.createElement('video')
+    video.preload = 'metadata'
+    video.muted = true
+    let settled = false
+    const finish = (result: string | null) => {
+      if (settled) return
+      settled = true
+      clearTimeout(timer)
+      URL.revokeObjectURL(url)
+      resolve(result)
+    }
+    const timer = setTimeout(() => finish(null), 5000)
+    video.onloadeddata = () => {
+      // Léger décalage pour éviter une éventuelle frame noire d'amorçage.
+      video.currentTime = Math.min(0.1, video.duration || 0)
+    }
+    video.onseeked = () => {
+      try {
+        const canvas = document.createElement('canvas')
+        canvas.width = video.videoWidth
+        canvas.height = video.videoHeight
+        const ctx = canvas.getContext('2d')
+        if (!ctx || !canvas.width || !canvas.height) {
+          finish(null)
+          return
+        }
+        ctx.drawImage(video, 0, 0, canvas.width, canvas.height)
+        finish(canvas.toDataURL('image/jpeg', 0.7))
+      } catch {
+        finish(null)
+      }
+    }
+    video.onerror = () => finish(null)
+    video.src = url
+  })
+}
+
 // Lit la durée d'une vidéo (secondes) via ses métadonnées, sans la télécharger entièrement.
 export function getVideoDuration(file: File): Promise<number> {
   return new Promise((resolve, reject) => {

@@ -8,11 +8,16 @@ import type {
   ChatExchangeRecord,
   Conversation,
   ConversationMessage,
+  FeedSort,
   HealthStatus,
   Paginated,
+  Publication,
+  PublicationComment,
+  PublicVote,
   SessionInfo,
   User,
   UserSettings,
+  VoteResult,
 } from '../types'
 import { isVideoPlatformUrl } from '../utils/videoUrl'
 
@@ -58,6 +63,18 @@ export async function analyzeFile(file: File, prompt?: string, lang = 'fr'): Pro
   return unwrap(data)
 }
 
+/** Résout la miniature d'une vidéo de plateforme via la passerelle (null si indisponible). */
+export async function fetchVideoThumbnail(url: string): Promise<string | null> {
+  try {
+    const { data } = await client.post<{ thumbnailUrl: string | null }>('/api/analyze/thumbnail', {
+      url,
+    })
+    return data.thumbnailUrl ?? null
+  } catch {
+    return null
+  }
+}
+
 export async function analyzeUrl(url: string, prompt?: string, lang = 'fr'): Promise<AnalysisResult> {
   const { data } = await client.post<ApiResponse<AnalysisResult>>('/api/analyze/url', {
     url,
@@ -98,6 +115,11 @@ export async function getAnalyses(query: AnalysesQuery = {}): Promise<Paginated<
 export async function getAnalysis(id: string): Promise<AnalysisRecord> {
   const { data } = await client.get<{ data: AnalysisRecord }>(`/api/analyses/${id}`)
   return data.data
+}
+
+// Supprime une analyse (et, côté serveur, ses échanges de chat liés et ses médias).
+export async function deleteAnalysis(id: string): Promise<void> {
+  await client.delete(`/api/analyses/${id}`)
 }
 
 export async function getChatHistory(requestId: string): Promise<ChatExchangeRecord[]> {
@@ -285,4 +307,87 @@ export function mediaUrl(requestId: string): string {
 /** URL de la vidéo originale d'une analyse (streaming Range — utilisable dans un <video src>). */
 export function videoUrl(requestId: string): string {
   return `${import.meta.env.VITE_API_URL ?? ''}/api/media/${requestId}/video`
+}
+
+// ─── Feed public « Global » ──────────────────────────────────────────────────
+
+export async function publishAnalysis(analysisId: string, caption?: string): Promise<Publication> {
+  const { data } = await client.post<{ publication: Publication }>('/api/global/publish', {
+    analysisId,
+    caption,
+  })
+  return data.publication
+}
+
+export async function getGlobalFeed(sort: FeedSort, page = 1): Promise<Paginated<Publication>> {
+  const { data } = await client.get<Paginated<Publication>>('/api/global', {
+    params: { sort, page },
+  })
+  return data
+}
+
+export async function getPublication(id: string): Promise<Publication> {
+  const { data } = await client.get<{ publication: Publication }>(`/api/global/publications/${id}`)
+  return data.publication
+}
+
+export async function votePublication(id: string, value: PublicVote): Promise<VoteResult> {
+  const { data } = await client.post<VoteResult>(`/api/global/publications/${id}/vote`, { value })
+  return data
+}
+
+export async function deletePublication(id: string): Promise<void> {
+  await client.delete(`/api/global/publications/${id}`)
+}
+
+export async function getPublicationComments(id: string): Promise<PublicationComment[]> {
+  const { data } = await client.get<{ data: PublicationComment[] }>(
+    `/api/global/publications/${id}/comments`
+  )
+  return data.data
+}
+
+export async function postComment(
+  id: string,
+  body: string,
+  parentId?: string
+): Promise<PublicationComment> {
+  const { data } = await client.post<{ comment: PublicationComment }>(
+    `/api/global/publications/${id}/comments`,
+    { body, parentId }
+  )
+  return data.comment
+}
+
+export async function deleteComment(commentId: string): Promise<void> {
+  await client.delete(`/api/global/comments/${commentId}`)
+}
+
+export async function reportPublication(id: string, reason: string): Promise<void> {
+  await client.post(`/api/global/publications/${id}/report`, { reason })
+}
+
+export async function reportComment(commentId: string, reason: string): Promise<void> {
+  await client.post(`/api/global/comments/${commentId}/report`, { reason })
+}
+
+// ─── Pages publiques (sans connexion) ────────────────────────────────────────
+
+export async function getPublicPublication(
+  slug: string
+): Promise<{ publication: Publication; comments: PublicationComment[] }> {
+  const { data } = await client.get<{ publication: Publication; comments: PublicationComment[] }>(
+    `/api/public/publications/${slug}`
+  )
+  return data
+}
+
+/** URL publique d'une miniature de publication (utilisable dans un <img src>, sans session). */
+export function publicMediaUrl(slug: string): string {
+  return `${import.meta.env.VITE_API_URL ?? ''}/api/public/media/${slug}`
+}
+
+/** URL publique de la vidéo d'une publication (streaming Range, sans session). */
+export function publicVideoUrl(slug: string): string {
+  return `${import.meta.env.VITE_API_URL ?? ''}/api/public/media/${slug}/video`
 }

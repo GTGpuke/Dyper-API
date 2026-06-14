@@ -19,8 +19,10 @@ import { analyzeRoutes } from './routes/analyze/analyze.routes';
 import { authRoutes } from './routes/auth/auth.routes';
 import { chatRoutes } from './routes/chat/chat.routes';
 import { conversationsRoutes } from './routes/conversations/conversations.routes';
+import { globalRoutes } from './routes/global/global.routes';
 import { meRoutes } from './routes/me/me.routes';
 import { mediaRoutes } from './routes/media/media.routes';
+import { publicRoutes } from './routes/public/public.routes';
 import aiService from './services/ai/ai.service';
 import sequelize from './services/db/database.service';
 import { env } from './services/env.service';
@@ -215,6 +217,7 @@ export async function buildApp(opts: FastifyServerOptions = {}): Promise<Fastify
       await protectedApp.register(analysisRoutes, { prefix: '/api/analyses' });
       await protectedApp.register(meRoutes, { prefix: '/api/me' });
       await protectedApp.register(conversationsRoutes, { prefix: '/api/conversations' });
+      await protectedApp.register(globalRoutes, { prefix: '/api/global' });
     });
   });
 
@@ -237,6 +240,25 @@ export async function buildApp(opts: FastifyServerOptions = {}): Promise<Fastify
     });
     mediaApp.addHook('onRequest', verifyAuth);
     await mediaApp.register(mediaRoutes, { prefix: '/api/media' });
+  });
+
+  // ─── Feed public « Global » (sans authentification) ───────────────────────────
+  // Pages et médias partageables hors session, protégés par un slug aléatoire non devinable.
+  // Le contenu publié est garanti tout public (modération « tout sensible bloqué » à la publication).
+  await app.register(async (publicApp) => {
+    await publicApp.register(rateLimit, {
+      max: env.RATE_LIMIT_MAX,
+      timeWindow: env.RATE_LIMIT_WINDOW,
+      errorResponseBuilder: (request) => {
+        const e = new RateLimitExceededError();
+        return {
+          success: false,
+          requestId: String(request.id),
+          error: { code: e.code, message: e.message, details: e.details },
+        };
+      },
+    });
+    await publicApp.register(publicRoutes, { prefix: '/api/public' });
   });
 
   return app;

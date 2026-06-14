@@ -1,26 +1,20 @@
-// Hook de surveillance de la santé de la passerelle (DB + dyper-ai), rafraîchi périodiquement.
-import { useEffect, useState } from 'react'
-import * as api from '../services/api'
+// Hooks de santé : statut live et historique de disponibilité, adossés à un store partagé
+// (un seul sondage de /health pour toute l'application, cf. services/healthStore).
+import { useSyncExternalStore } from 'react'
+import {
+  getHealthHistory,
+  getLiveHealth,
+  type HealthSample,
+  subscribeHealth,
+} from '../services/healthStore'
 import type { HealthStatus } from '../types'
 
-export function useHealth(intervalMs = 20_000): HealthStatus | null {
-  const [health, setHealth] = useState<HealthStatus | null>(null)
+/** Statut courant de la passerelle (base + service IA), rafraîchi périodiquement. */
+export function useHealth(): HealthStatus | null {
+  return useSyncExternalStore(subscribeHealth, getLiveHealth)
+}
 
-  useEffect(() => {
-    let active = true
-    const poll = () => {
-      api
-        .getHealth()
-        .then((h) => active && setHealth(h))
-        .catch(() => active && setHealth({ status: 'error', uptime: 0, db: 'error', ai: 'unreachable' }))
-    }
-    poll()
-    const timer = setInterval(poll, intervalMs)
-    return () => {
-      active = false
-      clearInterval(timer)
-    }
-  }, [intervalMs])
-
-  return health
+/** Historique des relevés de santé (alimente la frise de disponibilité de la page Statut). */
+export function useHealthHistory(): HealthSample[] {
+  return useSyncExternalStore(subscribeHealth, getHealthHistory)
 }

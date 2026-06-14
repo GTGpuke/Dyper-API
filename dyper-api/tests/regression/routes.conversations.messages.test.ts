@@ -48,7 +48,7 @@ function fakeAi(opts: ProcessOptions): ProcessAiResponse {
         ],
       },
     ],
-    music: { artist: 'Daft Punk', title: 'Around the World', album: null },
+    music: [{ artist: 'Daft Punk', title: 'Around the World', album: null }],
   };
 }
 
@@ -112,7 +112,7 @@ describe('Envoi de messages (/api/conversations/:id/messages)', () => {
     // Champs du lecteur annoté et de la reconnaissance musicale, inlinés dans la carte.
     expect(assistantMsg.analysis.frames).toHaveLength(1);
     expect(assistantMsg.analysis.frames[0].objects[0].trackId).toBe(1);
-    expect(assistantMsg.analysis.music.title).toBe('Around the World');
+    expect(assistantMsg.analysis.music[0].title).toBe('Around the World');
     // Image (pas de vidéo conservée) : videoUrl absent.
     expect(assistantMsg.analysis.videoUrl).toBeNull();
 

@@ -159,15 +159,20 @@ class TestRouteProcess:
         assert response.status_code == 200
         data = response.json()
         assert data["description"] == "Une scène urbaine animée au crépuscule."
-        # Le détecteur à vocabulaire ouvert a boxé les éléments listés par la vision
-        # (le mock WorldRunner détecte le premier élément du vocabulaire).
-        assert data["visualization"]["objects"][0]["label"] == "rock"
+        # Fusion COCO + vocabulaire ouvert : COCO localise « person », le détecteur à
+        # vocabulaire ouvert boxe les éléments listés par la vision (mock → premier du
+        # vocabulaire, soit « rock »). Les deux boîtes coexistent (emplacements distincts).
+        labels = [obj["label"] for obj in data["visualization"]["objects"]]
+        assert "person" in labels
+        assert "rock" in labels
+        # Étiquette honnête : les deux modèles sont crédités dans la réponse.
+        assert data["model"] == "yolo26l + yolov8x-worldv2"
         # La scène vue par la vision remplace l'heuristique COCO.
         assert data["visualization"]["scene"]["label"] == "zoo en plein air"
         assert data["visualization"]["scene"]["indoor"] is False
 
-    def test_process_image_vision_sans_elements_repli_coco(self, client):
-        """Vérifie le repli COCO quand la vision ne fournit pas d'éléments localisables."""
+    def test_process_image_vision_sans_elements(self, client):
+        """Vérifie que sans éléments vision, COCO reste prioritaire et la description est conservée."""
         from unittest.mock import AsyncMock, patch
 
         from app.services.vision_llm import VisionAnalysis
@@ -188,7 +193,8 @@ class TestRouteProcess:
             )
         assert response.status_code == 200
         data = response.json()
-        # Détection COCO classique (mock YoloRunner → person), description vision conservée.
+        # Sans éléments vision, le vocabulaire ouvert se réduit à la base étendue. COCO reste
+        # prioritaire dans la fusion (mock YoloRunner → person), la description vision est gardée.
         assert data["visualization"]["objects"][0]["label"] == "person"
         assert data["description"] == "Un compte rendu sans éléments."
 

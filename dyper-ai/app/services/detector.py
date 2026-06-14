@@ -40,24 +40,20 @@ def extract_objects(results: Any) -> list[DetectedObject]:
     return objects
 
 
-def detect(
+def build_response(
+    objects: list[DetectedObject],
     image: Image.Image,
-    runner: YoloRunner,
     prompt: str | None,
     lang: str,
     request_id: str,
+    model: str,
     processing_time_ms: int = 0,
-    precomputed: Any | None = None,
 ) -> ProcessResponse:
-    """Exécute le pipeline complet de détection sur une image PIL.
+    """Construit la réponse à partir d'objets déjà détectés (scène, couleurs, compte rendu, tags).
 
-    Enchaîne l'inférence YOLO, l'extraction des objets, l'inférence de scène (localisée),
-    les couleurs dominantes et la génération de description. Si `precomputed` est fourni
-    (résultats YOLO déjà calculés, ex. tracking vidéo), l'inférence n'est pas relancée.
+    Séparé de `detect()` pour permettre la fusion : la passerelle peut combiner plusieurs
+    détecteurs (COCO + vocabulaire ouvert) puis bâtir une seule réponse, avec son propre label.
     """
-    results = precomputed if precomputed is not None else runner.predict(image)
-    objects = extract_objects(results)
-
     # Inférence de la scène (label localisé selon la langue) puis compte rendu enrichi
     # (composition spatiale via les dimensions de l'image, couleurs nommées).
     scene = scene_service.infer_scene(objects, lang)
@@ -79,6 +75,21 @@ def detect(
         requestId=request_id,
         description=description_text,
         visualization=visualization,
-        model=runner.model_name,
+        model=model,
         processingTimeMs=processing_time_ms,
+    )
+
+
+def detect(
+    image: Image.Image,
+    runner: YoloRunner,
+    prompt: str | None,
+    lang: str,
+    request_id: str,
+    processing_time_ms: int = 0,
+) -> ProcessResponse:
+    """Exécute le pipeline COCO complet sur une image PIL (inférence via `runner`)."""
+    objects = extract_objects(runner.predict(image))
+    return build_response(
+        objects, image, prompt, lang, request_id, runner.model_name, processing_time_ms
     )

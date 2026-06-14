@@ -4,11 +4,13 @@ import sys
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
+from app.schemas.response import MusicInfo
 from app.services import audio as audio_service
 from app.services.audio import (
     analyze_audio,
     build_ffmpeg_command,
     extract_audio,
+    recognize_music,
     recognize_music_file,
     transcribe_file,
 )
@@ -196,32 +198,62 @@ class TestReconnaissanceMusicale:
 
 
 @pytest.mark.unit
+class TestRecognizeMusicMulti:
+    """Tests de la reconnaissance musicale multi-titres (sondage de plusieurs extraits)."""
+
+    async def test_sans_jeton_liste_vide(self):
+        """Vérifie que la reconnaissance multi-titres est désactivée sans jeton AudD."""
+        assert await recognize_music("/tmp/video.mp4") == []
+
+    async def test_titres_dedupliques_et_arret_en_fin(self):
+        """Vérifie le sondage de plusieurs extraits, la déduplication et l'arrêt en fin de vidéo."""
+        track_a = MusicInfo(artist="A", title="X")
+        track_b = MusicInfo(artist="B", title="Y")
+        with (
+            patch.object(audio_service.settings, "AUDD_API_TOKEN", "test-token"),
+            patch.object(
+                audio_service, "extract_audio", side_effect=["/1.m4a", "/2.m4a", "/3.m4a", None]
+            ),
+            patch.object(
+                audio_service,
+                "recognize_music_file",
+                new=AsyncMock(side_effect=[track_a, track_a, track_b]),
+            ),
+            patch.object(audio_service, "_cleanup"),
+        ):
+            musics = await recognize_music("/tmp/video.mp4")
+
+        # « track_a » est dédupliqué ; l'extrait None (fin de vidéo atteinte) arrête le sondage.
+        assert [(m.artist, m.title) for m in musics] == [("A", "X"), ("B", "Y")]
+
+
+@pytest.mark.unit
 class TestAnalyzeAudio:
     """Tests de l'orchestration complète (transcription + musique en parallèle)."""
 
-    async def test_sans_aucune_cle_retourne_triple_none(self):
+    async def test_sans_aucune_cle_retourne_vide(self):
         """Vérifie le court-circuit complet quand ni Groq ni AudD ne sont configurés."""
-        assert await analyze_audio("/tmp/video.mp4") == (None, None, None)
+        assert await analyze_audio("/tmp/video.mp4") == (None, None, [])
 
     async def test_orchestration_parallele(self):
-        """Vérifie l'extraction double (complète + extrait) et le nettoyage final."""
+        """Vérifie l'extraction de la piste complète, l'appel parallèle et le nettoyage final."""
         with (
             patch.object(audio_service.settings, "GROQ_API_KEY", "test-key"),
             patch.object(audio_service.settings, "AUDD_API_TOKEN", "test-token"),
             patch.object(
-                audio_service, "extract_audio", side_effect=["/tmp/full.m4a", "/tmp/court.m4a"]
+                audio_service, "extract_audio", return_value="/tmp/full.m4a"
             ) as extract_mock,
             patch.object(
                 audio_service, "transcribe_file", new=AsyncMock(return_value=("Bonjour.", None))
             ),
-            patch.object(audio_service, "recognize_music_file", new=AsyncMock(return_value=None)),
+            patch.object(audio_service, "recognize_music", new=AsyncMock(return_value=[])),
             patch.object(audio_service, "_cleanup") as cleanup_mock,
         ):
-            transcript, segments, music = await analyze_audio("/tmp/video.mp4")
+            transcript, segments, musics = await analyze_audio("/tmp/video.mp4")
 
         assert transcript == "Bonjour."
         assert segments is None
-        assert music is None
-        # Deux extractions (piste complète + extrait court) et nettoyage des deux fichiers.
-        assert extract_mock.call_count == 2
-        assert cleanup_mock.call_count == 2
+        assert musics == []
+        # Extraction de la piste complète puis nettoyage de ce fichier.
+        extract_mock.assert_called_once()
+        cleanup_mock.assert_called_once()

@@ -43,42 +43,45 @@ def sample_objects() -> list:
     ]
 
 
-def _build_mock_results(track_id: int | None = None, label: str = "person") -> MagicMock:
-    """Construit de faux résultats YOLO (une détection, label et piste configurables)."""
+def _build_mock_results(label: str = "person", xyxy: list[float] | None = None) -> MagicMock:
+    """Construit de faux résultats YOLO (une détection : label et boîte configurables, sans piste).
+
+    Le suivi n'est plus assuré par YOLO mais par le tracker maison : `boxes.id` reste donc nul.
+    """
     mock_results = MagicMock()
     mock_boxes = MagicMock()
     mock_boxes.__len__.return_value = 1
-    mock_boxes.xyxy.tolist.return_value = [[10.0, 20.0, 60.0, 120.0]]
+    mock_boxes.xyxy.tolist.return_value = [xyxy or [10.0, 20.0, 60.0, 120.0]]
     mock_boxes.conf.tolist.return_value = [0.92]
     mock_boxes.cls.tolist.return_value = [0]
-    if track_id is None:
-        # Mode prédiction simple : pas d'identifiants de piste.
-        mock_boxes.id = None
-    else:
-        mock_boxes.id.tolist.return_value = [track_id]
+    mock_boxes.id = None  # Pas d'identifiant de piste (suivi délégué au tracker maison).
     mock_results.boxes = mock_boxes
     mock_results.names = {0: label}
     return mock_results
 
 
 def _build_mock_runner() -> MagicMock:
-    """Construit un mock de YoloRunner simulant une détection « person » (predict et track)."""
+    """Construit un mock de YoloRunner simulant une détection « person » (predict)."""
     runner = MagicMock()
     runner.model_name = "yolo26l"
     runner.model = object()  # marque le modèle comme « chargé » pour /health.
     runner.predict.return_value = _build_mock_results()
-    runner.track.return_value = _build_mock_results(track_id=1)
     return runner
 
 
 def _build_mock_world() -> MagicMock:
-    """Construit un mock de WorldRunner : détecte le premier élément du vocabulaire demandé."""
+    """Construit un mock de WorldRunner : détecte le premier élément du vocabulaire demandé.
+
+    World ne fait que de la détection (sans suivi → pas de trackId, COCO porte l'identité). La
+    boîte est volontairement DISTINCTE de celle de COCO (qui détecte « person ») afin que la
+    fusion conserve les deux détections (recouvrement nul → aucune déduplication).
+    """
     world = MagicMock()
     world.model_name = "yolov8x-worldv2"
     world.is_ready.return_value = True
-    world.detect_classes.side_effect = lambda image, classes, persist=None: _build_mock_results(
-        track_id=1 if persist is not None else None,
+    world.detect_classes.side_effect = lambda image, classes: _build_mock_results(
         label=classes[0] if classes else "thing",
+        xyxy=[200.0, 150.0, 260.0, 200.0],
     )
     return world
 

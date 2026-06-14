@@ -12,13 +12,16 @@ import { useI18n } from './contexts/I18nContext'
 import { useTheme } from './contexts/ThemeContext'
 import type { Lang } from './i18n/translations'
 import { ChatPage } from './pages/ChatPage'
-import { DashboardPage } from './pages/DashboardPage'
 import { DetailPage } from './pages/DetailPage'
+import { GlobalPage } from './pages/GlobalPage'
 import { HistoryPage } from './pages/HistoryPage'
 import { LoginPage } from './pages/LoginPage'
 import { PricingPage } from './pages/PricingPage'
+import { PublicationDetailPage } from './pages/PublicationDetailPage'
+import { PublicPublicationPage } from './pages/PublicPublicationPage'
 import { RegisterPage } from './pages/RegisterPage'
 import { SettingsPage } from './pages/SettingsPage'
+import { StatusPage } from './pages/StatusPage'
 
 // Applique les préférences du compte (source de vérité) au thème et à la langue après connexion.
 function PreferencesSync() {
@@ -51,6 +54,8 @@ export function App() {
       <Routes>
         <Route path="/login" element={<LoginPage />} />
         <Route path="/register" element={<RegisterPage />} />
+        {/* Page publique d'une publication partagée (accessible sans compte). */}
+        <Route path="/p/:slug" element={<PublicPublicationPage />} />
         {/* Documentation publique (accessible sans compte) : accueil, guides et référence API. */}
         <Route path="/api-docs" element={<DocsLayout />}>
           <Route index element={<DocsHome />} />
@@ -65,7 +70,9 @@ export function App() {
             <Route path="c?/:conversationId?" element={<ChatPage />} />
             <Route path="history" element={<HistoryPage />} />
             <Route path="analysis/:id" element={<DetailPage />} />
-            <Route path="dashboard" element={<DashboardPage />} />
+            <Route path="global" element={<GlobalPage />} />
+            <Route path="global/:id" element={<PublicationDetailPage />} />
+            <Route path="status" element={<StatusPage />} />
             <Route path="settings" element={<SettingsPage />} />
             <Route path="settings/:section" element={<SettingsPage />} />
             <Route path="pricing" element={<PricingPage />} />

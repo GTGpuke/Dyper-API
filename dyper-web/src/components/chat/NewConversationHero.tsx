@@ -1,7 +1,8 @@
 // Héros d'accueil d'une nouvelle conversation : zone de dépôt riche (drag & drop, parcourir,
-// coller, URL), aperçu complet du média sélectionné et lancement de l'analyse.
-import { useEffect, useRef, useState, type DragEvent } from 'react'
+// coller, URL), vitrine des capacités, aperçu complet du média et lancement de l'analyse.
 import { AnimatePresence, motion } from 'framer-motion'
+import { type DragEvent, type ReactNode, useEffect, useRef, useState } from 'react'
+import { Link } from 'react-router-dom'
 import logo from '../../assets/dyper-logo.svg'
 import { useI18n } from '../../contexts/I18nContext'
 import { cn } from '../../lib/cn'
@@ -9,8 +10,40 @@ import type { PendingAttachment } from '../../types'
 import { formatBytes, formatTimecode } from '../../utils/formatters'
 import { Button } from '../ui/Button'
 import { Spinner } from '../ui/Spinner'
+import { StatChip } from '../ui/StatChip'
 
 const FORMAT_CHIPS = ['JPEG', 'PNG', 'WebP', 'GIF', 'MP4']
+
+// Vitrine des capacités réelles du moteur (vend les features d'un coup d'œil).
+const CAPABILITIES: { key: string; icon: ReactNode }[] = [
+  {
+    key: 'hero.cap.objects',
+    icon: (
+      <path d="M4 8V5a1 1 0 0 1 1-1h3M16 4h3a1 1 0 0 1 1 1v3M20 16v3a1 1 0 0 1-1 1h-3M8 20H5a1 1 0 0 1-1-1v-3" />
+    ),
+  },
+  {
+    key: 'hero.cap.scene',
+    icon: (
+      <>
+        <path d="M3 20h18" />
+        <path d="M6 20l4-6 3 3 2-4 3 7" />
+      </>
+    ),
+  },
+  { key: 'hero.cap.colors', icon: <path d="M12 3c4 5 6 7 6 10a6 6 0 0 1-12 0c0-3 2-5 6-10z" /> },
+  { key: 'hero.cap.transcript', icon: <path d="M4 5h16v10H8l-4 4V5z" /> },
+  {
+    key: 'hero.cap.music',
+    icon: (
+      <>
+        <path d="M9 18V6l10-2v10" />
+        <circle cx="7" cy="18" r="2" />
+        <circle cx="17" cy="16" r="2" />
+      </>
+    ),
+  },
+]
 
 interface Props {
   attachment: PendingAttachment | null
@@ -41,6 +74,7 @@ export function NewConversationHero({
   const [question, setQuestion] = useState('')
   const dragDepthRef = useRef(0)
   const fileInputRef = useRef<HTMLInputElement>(null)
+  const urlInputRef = useRef<HTMLInputElement>(null)
 
   // Collage direct d'une image depuis le presse-papiers (Ctrl+V) tant que le héros est affiché.
   useEffect(() => {
@@ -53,6 +87,11 @@ export function NewConversationHero({
     window.addEventListener('paste', onPaste)
     return () => window.removeEventListener('paste', onPaste)
   }, [onPickFile])
+
+  // Focalise le champ URL à son ouverture (révélé par une action volontaire).
+  useEffect(() => {
+    if (urlMode) urlInputRef.current?.focus()
+  }, [urlMode])
 
   function handleDrop(e: DragEvent): void {
     e.preventDefault()
@@ -75,13 +114,19 @@ export function NewConversationHero({
   return (
     <div className="flex h-full items-center justify-center overflow-y-auto px-4 py-8">
       <div className="w-full max-w-2xl">
-        {/* En-tête. */}
-        <div className="mb-6 text-center">
-          <img src={logo} alt="" className="mx-auto mb-4 h-14 w-14 rounded-2xl object-contain" />
-          <h1 className="text-2xl font-bold tracking-tight text-ink-900 dark:text-ink-50">
+        {/* En-tête : halo dégradé derrière le logo. */}
+        <div className="relative mb-7 text-center">
+          <div
+            aria-hidden
+            className="pointer-events-none absolute left-1/2 top-0 -z-10 h-40 w-40 -translate-x-1/2 -translate-y-6 rounded-full bg-gradient-to-br from-blue-500/25 to-violet-600/25 blur-3xl"
+          />
+          <Link to="/" aria-label="Dyper AI" className="mb-4 inline-block">
+            <img src={logo} alt="Dyper AI" className="h-16 w-16 rounded-2xl object-contain" />
+          </Link>
+          <h1 className="text-3xl font-bold tracking-tight text-ink-900 dark:text-ink-50">
             {t('hero.title')}
           </h1>
-          <p className="mx-auto mt-1.5 max-w-md text-sm leading-relaxed text-ink-500 dark:text-ink-400">
+          <p className="mx-auto mt-2 max-w-md text-[15px] leading-relaxed text-ink-500 dark:text-ink-400">
             {t('hero.subtitle')}
           </p>
         </div>
@@ -97,25 +142,35 @@ export function NewConversationHero({
               className="surface overflow-hidden"
             >
               {attachment.kind === 'url' ? (
-                <div className="flex items-center gap-3 p-5">
-                  <span className="grid h-10 w-10 shrink-0 place-items-center rounded-xl bg-brand-50 text-brand-600 dark:bg-brand-600/15 dark:text-brand-300">
-                    <svg className="h-5 w-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                      <path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71" strokeLinecap="round" strokeLinejoin="round" />
-                    </svg>
-                  </span>
-                  <span className="min-w-0 flex-1 truncate font-mono text-sm text-ink-700 dark:text-ink-200">
-                    {attachment.url}
-                  </span>
+                <div>
+                  {attachment.thumbnailUrl && (
+                    <img
+                      src={attachment.thumbnailUrl}
+                      alt=""
+                      className="max-h-80 w-full bg-ink-900 object-contain"
+                    />
+                  )}
+                  <div className="flex items-center gap-3 p-5">
+                    <span className="grid h-10 w-10 shrink-0 place-items-center rounded-xl bg-brand-50 text-brand-600 dark:bg-brand-600/15 dark:text-brand-300">
+                      <svg className="h-5 w-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                        <path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71" strokeLinecap="round" strokeLinejoin="round" />
+                      </svg>
+                    </span>
+                    <span className="min-w-0 flex-1 truncate font-mono text-sm text-ink-700 dark:text-ink-200">
+                      {attachment.url}
+                    </span>
+                  </div>
                 </div>
               ) : fileAttachment?.isVideo ? (
                 fileAttachment.previewUrl && (
-                  // biome-ignore lint/a11y/useMediaCaption: aperçu local avant analyse, sans piste de sous-titres disponible.
                   <video
                     src={fileAttachment.previewUrl}
                     controls
                     preload="metadata"
                     className="max-h-80 w-full bg-ink-900 object-contain"
-                  />
+                  >
+                    <track kind="captions" />
+                  </video>
                 )
               ) : (
                 fileAttachment?.previewUrl && (
@@ -152,7 +207,7 @@ export function NewConversationHero({
                 </Button>
               </div>
 
-              {/* Question optionnelle + lancement (la confirmation se fait ici, preview en tête). */}
+              {/* Question optionnelle + lancement (la confirmation se fait ici, aperçu en tête). */}
               <div className="flex items-center gap-2 p-4">
                 <input
                   type="text"
@@ -179,7 +234,7 @@ export function NewConversationHero({
               </div>
             </motion.div>
           ) : (
-            /* ─── Zone de dépôt ───────────────────────────────────────────── */
+            /* ─── Zone de dépôt + vitrine des capacités ───────────────────── */
             <motion.div
               key="dropzone"
               initial={{ opacity: 0, scale: 0.97 }}
@@ -201,16 +256,20 @@ export function NewConversationHero({
                 onDragOver={(e) => e.preventDefault()}
                 onDrop={handleDrop}
                 className={cn(
-                  'relative block w-full rounded-3xl border-2 border-dashed px-8 py-14 text-center transition-all duration-200',
+                  'relative block w-full overflow-hidden rounded-3xl border-2 border-dashed px-8 py-16 text-center transition-all duration-200',
                   dragging
                     ? 'scale-[1.01] border-brand-500 bg-brand-50 shadow-card-hover dark:bg-brand-600/10'
-                    : 'border-ink-300 bg-white hover:border-brand-400 hover:bg-brand-50/40 dark:border-ink-700 dark:bg-ink-800/40 dark:hover:border-brand-500 dark:hover:bg-brand-600/5'
+                    : 'border-ink-300 bg-gradient-to-b from-ink-50 to-white hover:border-brand-400 hover:from-brand-50/50 dark:border-ink-700 dark:from-ink-800/40 dark:to-ink-900 dark:hover:border-brand-500'
                 )}
               >
                 <motion.div
-                  animate={dragging ? { y: [0, -6, 0] } : { y: 0 }}
-                  transition={dragging ? { repeat: Number.POSITIVE_INFINITY, duration: 0.9 } : {}}
-                  className="mx-auto mb-4 grid h-16 w-16 place-items-center rounded-2xl bg-gradient-to-br from-brand-500 to-brand-700 text-white shadow-lg"
+                  animate={dragging ? { y: [0, -8, 0] } : { y: [0, -4, 0] }}
+                  transition={{
+                    repeat: Number.POSITIVE_INFINITY,
+                    duration: dragging ? 0.8 : 3,
+                    ease: 'easeInOut',
+                  }}
+                  className="mx-auto mb-4 grid h-16 w-16 place-items-center rounded-2xl bg-gradient-to-br from-blue-500 to-violet-600 text-white shadow-lg shadow-violet-600/25"
                 >
                   <svg className="h-8 w-8" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8">
                     <path d="M12 16V4m0 0L8 8m4-4l4 4" strokeLinecap="round" strokeLinejoin="round" />
@@ -225,7 +284,6 @@ export function NewConversationHero({
                   {t('hero.browse')} · {t('hero.paste')}
                 </p>
 
-                {/* Formats acceptés + limites. */}
                 <div className="mt-5 flex flex-wrap items-center justify-center gap-1.5">
                   {FORMAT_CHIPS.map((format) => (
                     <span
@@ -244,6 +302,7 @@ export function NewConversationHero({
                 {urlMode ? (
                   <div className="flex w-full max-w-md items-center gap-2">
                     <input
+                      ref={urlInputRef}
                       type="url"
                       value={url}
                       onChange={(e) => setUrl(e.target.value)}
@@ -252,8 +311,6 @@ export function NewConversationHero({
                         if (e.key === 'Escape') setUrlMode(false)
                       }}
                       placeholder={t('chat.attach.urlPlaceholder')}
-                      // biome-ignore lint/a11y/noAutofocus: champ révélé par une action volontaire de l'utilisateur.
-                      autoFocus
                       className="min-w-0 flex-1 rounded-xl border border-ink-200 bg-white px-4 py-2.5 text-sm outline-none focus:border-violet-400 focus:shadow-focus dark:border-ink-700 dark:bg-ink-800 dark:text-ink-50"
                     />
                     <Button size="sm" onClick={submitUrl}>
@@ -269,6 +326,16 @@ export function NewConversationHero({
                     {t('hero.orUrl')}
                   </button>
                 )}
+              </div>
+
+              {/* Vitrine des capacités. */}
+              <div className="mt-8">
+                <p className="eyebrow mb-3 text-center">{t('hero.cap.title')}</p>
+                <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
+                  {CAPABILITIES.map((cap) => (
+                    <StatChip key={cap.key} icon={cap.icon} label={t(cap.key)} />
+                  ))}
+                </div>
               </div>
             </motion.div>
           )}

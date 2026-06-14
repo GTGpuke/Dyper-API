@@ -1,6 +1,16 @@
 // Contrôleurs de consultation de l'historique des analyses persistées (lecture paginée façon v2).
 import type { FastifyReply, FastifyRequest } from 'fastify';
-import { Analysis, ChatExchange } from '../../models';
+import { Op } from 'sequelize';
+import {
+  Analysis,
+  ChatExchange,
+  Publication,
+  PublicationComment,
+  PublicationReport,
+  PublicationVote,
+} from '../../models';
+import sequelize from '../../services/db/database.service';
+import { deleteMediaFiles } from '../../services/media/media.service';
 import { NotFoundError } from '../../utils/errors';
 
 // Colonnes triables autorisées (évite l'injection via sort_by).
@@ -80,4 +90,59 @@ export async function getChatHistory(
     order: [['created_at', 'ASC']],
   });
   reply.send({ data: rows, total: rows.length });
+}
+
+// DELETE /api/analyses/:id — supprime une analyse, ses échanges de chat liés et ses médias.
+export async function deleteAnalysis(
+  request: FastifyRequest<{ Params: { id: string } }>,
+  reply: FastifyReply
+): Promise<void> {
+  const userId = request.authUser?.id;
+
+  // Filtrage direct sur (id, user_id) : même 404 anti-IDOR que la lecture (pas de fuite d'existence).
+  const analysis = await Analysis.findOne({
+    where: { id: request.params.id, user_id: userId },
+  });
+  if (!analysis) {
+    throw new NotFoundError('Analyse introuvable.');
+  }
+
+  // Chemins médias collectés avant la transaction (le disque n'est pas transactionnel).
+  const mediaPaths = [analysis.thumbnail_path, analysis.video_path];
+  const requestId = analysis.request_id;
+
+  // Supprimer une analyse retire aussi sa publication au feed public (le média part avec).
+  const publication = await Publication.findOne({ where: { analysis_id: analysis.id } });
+  const publicationCommentIds = publication
+    ? (
+        await PublicationComment.findAll({
+          attributes: ['id'],
+          where: { publication_id: publication.id },
+        })
+      ).map((c) => c.id)
+    : [];
+
+  await sequelize.transaction(async (tx) => {
+    await ChatExchange.destroy({
+      where: { analysis_request_id: requestId, user_id: userId },
+      transaction: tx,
+    });
+    if (publication) {
+      await PublicationVote.destroy({ where: { publication_id: publication.id }, transaction: tx });
+      await PublicationComment.destroy({
+        where: { publication_id: publication.id },
+        transaction: tx,
+      });
+      await PublicationReport.destroy({
+        where: { target_id: { [Op.in]: [publication.id, ...publicationCommentIds] } },
+        transaction: tx,
+      });
+      await publication.destroy({ transaction: tx });
+    }
+    await analysis.destroy({ transaction: tx });
+  });
+
+  await deleteMediaFiles(mediaPaths);
+
+  reply.send({ success: true, deleted: 1 });
 }

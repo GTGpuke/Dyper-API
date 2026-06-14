@@ -11,14 +11,16 @@ import { Button } from '../components/ui/Button'
 import { EmptyState } from '../components/ui/EmptyState'
 import { useI18n } from '../contexts/I18nContext'
 import { useConversation } from '../hooks/useConversation'
+import { fetchVideoThumbnail } from '../services/api'
 import type { PendingAttachment } from '../types'
 import {
   getVideoDuration,
+  getVideoThumbnail,
   isVideoFile,
   validateFile,
   VIDEO_MAX_DURATION_S,
 } from '../utils/fileHelpers'
-import { isVideoPlatformUrl } from '../utils/videoUrl'
+import { isVideoPlatformUrl, youtubeThumbnailUrl } from '../utils/videoUrl'
 
 export function ChatPage() {
   const { t } = useI18n()
@@ -88,7 +90,8 @@ export function ChatPage() {
     if (isVideoFile(file)) {
       // Durée vérifiée via les métadonnées avant d'autoriser l'envoi (≤ 5 minutes).
       setChecking(true)
-      replaceAttachment({ kind: 'file', file, previewUrl, isVideo: true })
+      // Aperçu : icône le temps de générer la première image, puis vignette + durée.
+      replaceAttachment({ kind: 'file', file, previewUrl, thumbnailUrl: null, isVideo: true })
       try {
         const duration = await getVideoDuration(file)
         if (duration > VIDEO_MAX_DURATION_S) {
@@ -96,7 +99,15 @@ export function ChatPage() {
           setAttachmentError(t('input.videoTooLong'))
           return
         }
-        replaceAttachment({ kind: 'file', file, previewUrl, isVideo: true, durationS: duration })
+        const thumbnailUrl = await getVideoThumbnail(file)
+        replaceAttachment({
+          kind: 'file',
+          file,
+          previewUrl,
+          thumbnailUrl,
+          isVideo: true,
+          durationS: duration,
+        })
       } catch {
         // Métadonnées illisibles : le serveur tranchera (garde de durée côté dyper-ai).
       } finally {
@@ -105,12 +116,24 @@ export function ChatPage() {
       return
     }
 
-    replaceAttachment({ kind: 'file', file, previewUrl, isVideo: false })
+    // Image : l'object URL sert directement de vignette.
+    replaceAttachment({ kind: 'file', file, previewUrl, thumbnailUrl: previewUrl, isVideo: false })
   }
 
   function attachUrl(url: string): void {
     setAttachmentError(null)
-    replaceAttachment({ kind: 'url', url })
+    // YouTube : miniature déduite instantanément ; Twitch/VOD : résolue côté serveur (asynchrone).
+    const ytThumbnail = youtubeThumbnailUrl(url)
+    replaceAttachment({ kind: 'url', url, thumbnailUrl: ytThumbnail })
+    if (!ytThumbnail && isVideoPlatformUrl(url)) {
+      void fetchVideoThumbnail(url).then((thumbnailUrl) => {
+        if (!thumbnailUrl) return
+        // Ne mettre à jour que si c'est toujours la même URL collée.
+        setAttachment((prev) =>
+          prev?.kind === 'url' && prev.url === url ? { ...prev, thumbnailUrl } : prev
+        )
+      })
+    }
   }
 
   async function handleSend(text: string): Promise<void> {

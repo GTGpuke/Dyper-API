@@ -54,7 +54,6 @@ export function toInlineAnalysis(analysis: Analysis): InlineAnalysis {
     frames: analysis.frame_detections,
     music: analysis.music,
     transcriptSegments: analysis.transcript_segments,
-    chapters: analysis.chapters,
   };
 }
 
@@ -115,7 +114,6 @@ export function buildChatContext(analysis: Analysis): ChatContext {
     timeline: analysis.timeline,
     audioTranscript: analysis.audio_transcript,
     music: analysis.music,
-    chapters: analysis.chapters,
     visualization: {
       objects: analysis.objects ?? [],
       scene: {

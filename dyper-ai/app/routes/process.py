@@ -1,6 +1,5 @@
 """Route principale POST /process du service dyper-ai."""
 
-import asyncio
 import base64
 import os
 import time
@@ -13,20 +12,21 @@ from fastapi import APIRouter, Depends, HTTPException, Request
 from PIL import Image
 
 from app.config import settings
+from app.data.open_vocab import build_vocabulary
 from app.schemas.request import ProcessRequest
 from app.schemas.response import (
-    Chapter,
     FrameDetections,
     ProcessResponse,
     Scene,
     TimelineEntry,
-    TranscriptSegment,
     Visualization,
 )
 from app.services import audio as audio_service
 from app.services import description as desc_service
 from app.services import vision_llm
-from app.services.detector import detect
+from app.services.detector import build_response, detect, extract_objects
+from app.services.fusion import merge_detections
+from app.services.tracker import ObjectTracker
 from app.utils.auth import verify_internal_key
 from app.utils.image import decode_base64, resize_for_model, to_thumbnail_base64
 from app.utils.logger import get_logger
@@ -66,38 +66,99 @@ def fill_track_gaps(frames: list[FrameDetections], max_gap: int) -> list[Timelin
     ]
 
 
-def _transcript_slice(
-    segments: list[TranscriptSegment] | None, t_start: float, t_end: float
-) -> str | None:
-    """Concatène les tranches de transcription qui chevauchent l'intervalle [t_start, t_end)."""
-    if not segments:
-        return None
-    parts = [s.text for s in segments if s.end > t_start and s.start < t_end]
-    return " ".join(parts) or None
+def stabilize_track_labels(frames: list[FrameDetections]) -> None:
+    """Assigne à chaque piste son label le plus probable et réécrit toutes ses détections.
 
-
-def _build_chapter_windows(
-    frames: list[tuple[Image.Image, float]],
-) -> list[tuple[float, float, list[Image.Image]]]:
-    """Découpe la vidéo en fenêtres de chapitres avec 1-2 frames clés chacune.
-
-    Chaque fenêtre couvre `VIDEO_SEGMENT_S` secondes ; ses frames clés sont piochées parmi
-    les frames déjà extraites (milieu, et quart pour les fenêtres riches en frames).
+    Une même piste peut être étiquetée différemment selon la frame (« car », puis « truck », puis
+    « car ») alors qu'il s'agit du même objet : on retient le label dominant — vote pondéré par la
+    confiance sur toute la durée de vie de la piste — ce qui supprime ce scintillement et fiabilise
+    aussi le comblement des trous (clé de piste cohérente). Modification en place des objets
+    (partagés avec les réponses par frame et l'agrégat vidéo).
     """
-    duration = frames[-1][1]
-    windows: list[tuple[float, float, list[Image.Image]]] = []
-    t_start = 0.0
-    while t_start <= duration:
-        t_end = min(t_start + settings.VIDEO_SEGMENT_S, duration + 0.01)
-        in_window = [frame for frame, t in frames if t_start <= t < t_end]
-        if in_window:
-            # Frame du milieu, plus celle du premier quart si la fenêtre est dense.
-            keys = [in_window[len(in_window) // 2]]
-            if len(in_window) >= 8:
-                keys.insert(0, in_window[len(in_window) // 4])
-            windows.append((round(t_start, 2), round(min(t_end, duration), 2), keys))
-        t_start += settings.VIDEO_SEGMENT_S
-    return windows
+    votes: dict[int, dict[str, float]] = {}
+    for frame in frames:
+        for obj in frame.objects:
+            if obj.trackId is None:
+                continue
+            label_votes = votes.setdefault(obj.trackId, {})
+            label_votes[obj.label] = label_votes.get(obj.label, 0.0) + obj.confidence
+
+    best_label = {
+        track_id: max(label_votes.items(), key=lambda kv: kv[1])[0]
+        for track_id, label_votes in votes.items()
+    }
+    for frame in frames:
+        for obj in frame.objects:
+            if obj.trackId is not None:
+                obj.label = best_label[obj.trackId]
+
+
+# Nombre maximal de pistes décrites dans le résumé de détection (les plus longues d'abord).
+_DETECTION_SUMMARY_MAX = 12
+
+
+def _position_zone(cx: float, lang: str) -> str:
+    """Côté de l'image (gauche / centre / droite) d'un centre normalisé, localisé selon la langue."""
+    if lang == "en":
+        return "left" if cx < 0.4 else "right" if cx > 0.6 else "center"
+    return "à gauche" if cx < 0.4 else "à droite" if cx > 0.6 else "au centre"
+
+
+def _presence_phrase(span: float, duration: float, lang: str) -> str:
+    """Présence qualitative d'une piste selon la part de la vidéo couverte (jamais en secondes)."""
+    coverage = duration / span if span > 0 else 1.0
+    if coverage >= 0.6:
+        return "throughout" if lang == "en" else "tout du long"
+    if coverage <= 0.25:
+        return "briefly" if lang == "en" else "bref passage"
+    return "on and off" if lang == "en" else "par intermittence"
+
+
+def build_detection_summary(
+    frames: list[FrameDetections],
+    source_width: int | None,
+    source_height: int | None,
+    lang: str,
+) -> str | None:
+    """Résume les objets suivis (label, côté, présence) en INDICE INTERNE pour la synthèse.
+
+    Regroupe les détections par piste (trackId) : label stabilisé, côté moyen dans l'image et
+    présence qualitative — jamais d'horodatage ni de coordonnée d'écran (la synthèse n'en cite
+    aucune). Pistes les plus longues d'abord, plafonnées. None si rien n'est suivi ou dimensions
+    inconnues.
+    """
+    if not source_width or not source_height:
+        return None
+
+    label_by_track: dict[int, str] = {}
+    t_min: dict[int, float] = {}
+    t_max: dict[int, float] = {}
+    cx_sum: dict[int, float] = {}
+    samples: dict[int, int] = {}
+    for frame in frames:
+        for obj in frame.objects:
+            if obj.trackId is None or obj.boundingBox is None:
+                continue
+            tid = obj.trackId
+            box = obj.boundingBox
+            label_by_track[tid] = obj.label
+            t_min[tid] = min(t_min.get(tid, frame.t), frame.t)
+            t_max[tid] = max(t_max.get(tid, frame.t), frame.t)
+            cx_sum[tid] = cx_sum.get(tid, 0.0) + (box.x + box.w / 2) / source_width
+            samples[tid] = samples.get(tid, 0) + 1
+
+    if not label_by_track:
+        return None
+
+    span = frames[-1].t - frames[0].t
+    ordered = sorted(label_by_track, key=lambda tid: t_max[tid] - t_min[tid], reverse=True)
+    parts = [
+        f"{label_by_track[tid]} "
+        f"({_position_zone(cx_sum[tid] / samples[tid], lang)}, "
+        f"{_presence_phrase(span, t_max[tid] - t_min[tid], lang)})"
+        for tid in ordered[:_DETECTION_SUMMARY_MAX]
+    ]
+    return " ; ".join(parts)
 
 
 def _apply_vision(result: ProcessResponse, vision: vision_llm.VisionAnalysis | None) -> None:
@@ -210,22 +271,36 @@ async def process(
             elif body.imageUrl:
                 image = await _load_image_from_url(body.imageUrl)
             else:
-                raise HTTPException(status_code=422, detail="imageBase64 ou imageUrl requis.")
+                raise HTTPException(
+                    status_code=422, detail="Le champ imageBase64 ou imageUrl est requis."
+                )
 
             image = resize_for_model(image, settings.IMAGE_MAX_DIM)
 
-            # Pipeline « décrire puis ancrer » : la vision liste les éléments réellement
-            # visibles, puis le détecteur à vocabulaire ouvert les localise — les cadres
-            # correspondent à la description. Repli COCO intégral sinon (pas de clé, échec).
+            # Couverture maximale : COCO (précis sur ses 80 classes) ET le détecteur à
+            # vocabulaire ouvert (concepts arbitraires) sont exécutés, puis leurs boîtes sont
+            # fusionnées (une seule par objet, COCO prioritaire). La vision « décrit puis
+            # ancre » : ses éléments enrichissent le vocabulaire ouvert (en plus de la base).
             world = getattr(request.app.state, "world", None)
             vision = await vision_llm.describe_and_extract([image], body.lang, body.prompt)
-            if vision and vision.elements and world is not None and world.is_ready():
-                grounded = world.detect_classes(image, vision.elements)
-                result = detect(
-                    image, runner, body.prompt, body.lang, body.requestId, precomputed=grounded
+
+            coco_objects = extract_objects(
+                runner.predict(image, conf_threshold=settings.DISPLAY_MIN_CONFIDENCE)
+            )
+            if world is not None and world.is_ready():
+                vocabulary = build_vocabulary(list(vision.elements) if vision else [])
+                world_objects = extract_objects(world.detect_classes(image, vocabulary))
+                objects = merge_detections(
+                    coco_objects, world_objects, settings.MERGE_IOU_THRESHOLD
                 )
+                model_label = f"{runner.model_name} + {world.model_name}"
             else:
-                result = detect(image, runner, body.prompt, body.lang, body.requestId)
+                objects = coco_objects
+                model_label = runner.model_name
+
+            result = build_response(
+                objects, image, body.prompt, body.lang, body.requestId, model_label
+            )
 
             # Miniature + dimensions du référentiel des boîtes (image effectivement analysée).
             result.thumbnailBase64 = to_thumbnail_base64(image)
@@ -235,7 +310,8 @@ async def process(
         elif body.type == "video":
             if not body.videoBase64 and not body.videoUrl:
                 raise HTTPException(
-                    status_code=422, detail="videoBase64 ou videoUrl requis pour le type video."
+                    status_code=422,
+                    detail="Le champ videoBase64 ou videoUrl est requis pour le type video.",
                 )
 
             # Import différé : n'importe OpenCV que lorsqu'une vidéo est réellement traitée.
@@ -274,91 +350,71 @@ async def process(
                     for i in range(n_keyframes)
                 }
 
-                # Analyse de la piste audio d'abord : transcription horodatée + musique,
-                # transmises au modèle vision (global et par chapitre).
-                transcript, transcript_segments, music = await audio_service.analyze_audio(tmp_path)
+                # Analyse de la piste audio : transcription horodatée + bande-son (multi-titres).
+                transcript, transcript_segments, musics = await audio_service.analyze_audio(
+                    tmp_path
+                )
+                music_summary = (
+                    " ; ".join(f"{m.artist} — {m.title}" for m in musics) if musics else None
+                )
 
-                # Pipeline « décrire puis ancrer » chapitré : compte rendu global + analyse
-                # vision par segment temporel (appels parallèles, semaphore anti rate-limit).
+                # Pipeline « décrire puis ancrer » : compte rendu visuel global sur les images clés
+                # (transcription audio et bande-son fournies en contexte).
                 vision_frames = [
                     resize_for_model(frames[i][0], settings.IMAGE_MAX_DIM)
                     for i in sorted(keyframe_indices)
                 ]
                 world = getattr(request.app.state, "world", None)
-                # Parallélisme volontairement bas : le palier gratuit Groq est limité en
-                # tokens/minute — les retries de vision_llm absorbent les pics restants.
-                windows = _build_chapter_windows(frames) if vision_llm.is_available() else []
-                semaphore = asyncio.Semaphore(2)
-
-                async def _segment_call(
-                    images: list[Image.Image], t_start: float, t_end: float
-                ) -> vision_llm.VisionAnalysis | None:
-                    async with semaphore:
-                        return await vision_llm.describe_segment(
-                            images,
-                            body.lang,
-                            _transcript_slice(transcript_segments, t_start, t_end),
-                        )
-
-                gathered = await asyncio.gather(
-                    vision_llm.describe_and_extract(
-                        vision_frames,
-                        body.lang,
-                        body.prompt,
-                        transcript=transcript,
-                        music_summary=f"{music.artist} — {music.title}" if music else None,
-                        is_video=True,
-                    ),
-                    *(_segment_call(images, t0, t1) for t0, t1, images in windows),
+                vision = await vision_llm.describe_and_extract(
+                    vision_frames,
+                    body.lang,
+                    body.prompt,
+                    transcript=transcript,
+                    music_summary=music_summary,
+                    is_video=True,
                 )
-                vision = gathered[0]
-                segment_analyses = list(gathered[1:])
 
-                # Chapitres : ce qu'on voit et ce qu'on entend, par intervalle de temps.
-                chapters = [
-                    Chapter(
-                        tStart=t0,
-                        tEnd=t1,
-                        description=analysis.description if analysis else None,
-                        elements=analysis.elements if analysis else [],
-                        transcript=_transcript_slice(transcript_segments, t0, t1),
-                    )
-                    for (t0, t1, _images), analysis in zip(windows, segment_analyses, strict=True)
-                ] or None
+                # Vocabulaire ouvert = base étendue ∪ éléments listés par la vision globale,
+                # dédupliqué : un vocabulaire unique pour toute la vidéo (encodage CLIP mis en
+                # cache, détection cohérente).
+                vision_elements: list[str] = list(vision.elements) if vision else []
+                vision_elements = vision_elements[: settings.VIDEO_VOCAB_MAX]
+                use_world = world is not None and world.is_ready()
+                vocabulary = build_vocabulary(vision_elements) if use_world else []
+                model_label = (
+                    f"{runner.model_name} + {world.model_name}"
+                    if use_world and world
+                    else runner.model_name
+                )
 
-                # Vocabulaire de détection = UNION (global + chapitres) : un seul set_classes
-                # pour toute la vidéo (tracking stable) et couverture des éléments qui
-                # apparaissent à n'importe quel moment.
-                vocabulary: list[str] = list(vision.elements) if vision else []
-                for analysis in segment_analyses:
-                    if analysis:
-                        for element in analysis.elements:
-                            if element not in vocabulary:
-                                vocabulary.append(element)
-                vocabulary = vocabulary[: settings.VIDEO_VOCAB_MAX]
-                use_world = bool(vocabulary) and world is not None and world.is_ready()
-
+                # Tracker unifié (COCO + vocabulaire ouvert) propre à cette vidéo : il assigne des
+                # identités stables aux détections fusionnées via un coût explicite (mouvement +
+                # position + label + apparence). Cf. app/services/tracker.py.
+                tracker = ObjectTracker()
                 frame_responses: list[ProcessResponse] = []
                 frame_detections: list[FrameDetections] = []
                 first_resized: Image.Image | None = None
-                for index, (frame, timestamp) in enumerate(frames):
+                for frame, timestamp in frames:
                     resized = resize_for_model(frame, settings.IMAGE_MAX_DIM)
                     if first_resized is None:
                         first_resized = resized
-                    # Tracking : IDs de piste stables entre frames (persist=False réinitialise
-                    # le tracker au début de chaque nouvelle vidéo) — vocabulaire ouvert si la
-                    # vision a fourni des éléments, classes COCO sinon.
+                    # Détection seule (COCO + vocabulaire ouvert) puis fusion spatiale (une boîte
+                    # par objet, COCO prioritaire) ; l'identité est attribuée juste après.
+                    coco_objects = extract_objects(
+                        runner.predict(resized, conf_threshold=settings.DISPLAY_MIN_CONFIDENCE)
+                    )
                     if use_world and world:
-                        tracked = world.detect_classes(resized, vocabulary, persist=index > 0)
+                        world_objects = extract_objects(world.detect_classes(resized, vocabulary))
+                        fused = merge_detections(
+                            coco_objects, world_objects, settings.MERGE_IOU_THRESHOLD
+                        )
                     else:
-                        tracked = runner.track(resized, persist=index > 0)
-                    frame_result = detect(
-                        resized,
-                        runner,
-                        body.prompt,
-                        body.lang,
-                        body.requestId,
-                        precomputed=tracked,
+                        fused = coco_objects
+                    # Association inter-frames : identités stables dans un espace unique COCO+World.
+                    objects = tracker.update(fused, resized)
+
+                    frame_result = build_response(
+                        objects, resized, body.prompt, body.lang, body.requestId, model_label
                     )
                     frame_responses.append(frame_result)
                     # Détections complètes de la frame (lecteur annoté côté frontend).
@@ -376,6 +432,11 @@ async def process(
                 if os.path.exists(tmp_path):
                     os.remove(tmp_path)
 
+            # Stabilise le label de chaque piste (label le plus probable sur sa durée de vie) :
+            # supprime le scintillement « car/truck/car » sur un même objet suivi, et fiabilise
+            # la chronologie (clé de piste cohérente). Doit précéder fill_track_gaps et l'agrégat.
+            stabilize_track_labels(frame_detections)
+
             # Chronologie lissée : trous des pistes comblés (anti-scintillement).
             timeline = fill_track_gaps(frame_detections, settings.TIMELINE_GAP_FILL)
 
@@ -384,14 +445,25 @@ async def process(
             result.frames = frame_detections
             result.audioTranscript = transcript
             result.transcriptSegments = transcript_segments
-            result.chapters = chapters
-            result.music = music
+            result.music = musics
             result.videoBase64 = downloaded_b64
             # Miniature et référentiel des boîtes : première frame analysée.
             if first_resized is not None:
                 result.thumbnailBase64 = to_thumbnail_base64(first_resized)
                 result.sourceWidth, result.sourceHeight = first_resized.size
             _apply_vision(result, vision)
+
+            # Description finale cohérente : synthèse Groq de toutes les sources, par priorité
+            # (le compte rendu visuel global fait foi ; détection + audio + musique le complètent).
+            if vision and vision.description:
+                detections_summary = build_detection_summary(
+                    frame_detections, result.sourceWidth, result.sourceHeight, body.lang
+                )
+                synthesized = await vision_llm.synthesize_description(
+                    vision.description, detections_summary, transcript, music_summary, body.lang
+                )
+                if synthesized:
+                    result.description = synthesized
 
         else:  # type == "prompt"
             blank_image = Image.new("RGB", (100, 100), "white")

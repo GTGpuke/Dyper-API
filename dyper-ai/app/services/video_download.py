@@ -56,6 +56,31 @@ def _fetch_duration_sync(url: str) -> float | None:
     return float(duration) if duration else None
 
 
+def _fetch_thumbnail_sync(url: str) -> str | None:
+    """Récupère l'URL de la miniature des métadonnées, sans télécharger."""
+    import yt_dlp
+
+    with yt_dlp.YoutubeDL(_base_options()) as ydl:
+        info = ydl.extract_info(url, download=False)
+    thumbnail = info.get("thumbnail") if isinstance(info, dict) else None
+    return str(thumbnail) if thumbnail else None
+
+
+async def fetch_thumbnail_url(url: str) -> str | None:
+    """Retourne l'URL de la miniature d'une vidéo de plateforme (None si indisponible).
+
+    Best-effort (l'aperçu n'est pas critique) : URL hors liste blanche, métadonnées
+    inaccessibles ou absence de miniature → None, sans erreur.
+    """
+    if not is_allowed_url(url):
+        return None
+    try:
+        return await asyncio.to_thread(_fetch_thumbnail_sync, url)
+    except Exception as exc:  # noqa: BLE001 — best-effort : tout échec → pas de miniature.
+        logger.info(f"Miniature inaccessible pour {url} : {exc}")
+        return None
+
+
 def _download_sync(url: str) -> str:
     """Télécharge la vidéo en mp4 plafonné en résolution et retourne le chemin temporaire."""
     import yt_dlp

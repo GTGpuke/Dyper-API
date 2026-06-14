@@ -1,18 +1,19 @@
 // Page Détail : enregistrement complet d'une analyse (lecteur vidéo annoté inclus) +
 // historique de chat persisté.
-import { useRef, type ReactNode } from 'react'
+import { useRef, useState, type ReactNode } from 'react'
 import { Link, useParams } from 'react-router-dom'
+import { PublishDialog } from '../components/global/PublishDialog'
 import { PageContainer } from '../components/layout/PageContainer'
 import { PageHeader } from '../components/layout/PageHeader'
 import { MusicBadge } from '../components/result/MusicBadge'
 import { SceneBadge } from '../components/result/SceneBadge'
-import { ChapterList } from '../components/result/ChapterList'
 import { ColorPalette } from '../components/result/ColorPalette'
 import { TagCloud } from '../components/result/TagCloud'
 import { VideoPlayer } from '../components/result/VideoPlayer'
 import { VideoTimeline } from '../components/result/VideoTimeline'
 import { mediaUrl, videoUrl } from '../services/api'
 import { Badge } from '../components/ui/Badge'
+import { Button } from '../components/ui/Button'
 import { Skeleton } from '../components/ui/Skeleton'
 import { ErrorBanner } from '../components/ui/ErrorBanner'
 import { useAnalysis } from '../hooks/useAnalysis'
@@ -33,6 +34,7 @@ export function DetailPage() {
   const { t, lang } = useI18n()
   const { analysis, chat, loading, error } = useAnalysis(id)
   const seekRef = useRef<((time: number) => void) | null>(null)
+  const [publishing, setPublishing] = useState(false)
   const hasPlayer = Boolean(analysis?.video_path)
 
   return (
@@ -55,8 +57,25 @@ export function DetailPage() {
           <PageHeader
             title={t('detail.title')}
             subtitle={formatDateTime(analysis.created_at, lang)}
-            actions={<Badge tone="brand">{t(`type.${analysis.type}`)}</Badge>}
+            actions={
+              <div className="flex items-center gap-2">
+                {analysis.type !== 'prompt' && (
+                  <Button size="sm" onClick={() => setPublishing(true)}>
+                    {t('publish.action')}
+                  </Button>
+                )}
+                <Badge tone="brand">{t(`type.${analysis.type}`)}</Badge>
+              </div>
+            }
           />
+
+          {analysis.type !== 'prompt' && (
+            <PublishDialog
+              analysisId={analysis.id}
+              open={publishing}
+              onClose={() => setPublishing(false)}
+            />
+          )}
 
           <div className="grid gap-6 lg:grid-cols-3">
             {/* Colonne principale. */}
@@ -88,7 +107,7 @@ export function DetailPage() {
                   <p className="text-[15px] leading-relaxed text-ink-700 dark:text-ink-200">{analysis.description}</p>
                 </Section>
 
-                {analysis.music && (
+                {analysis.music && analysis.music.length > 0 && (
                   <Section title={t('music.title')}>
                     <div>
                       <MusicBadge music={analysis.music} />
@@ -105,21 +124,12 @@ export function DetailPage() {
                   </Section>
                 )}
 
-                {analysis.chapters && analysis.chapters.length > 0 ? (
-                  <Section title={t('chapters.title')}>
-                    <ChapterList
-                      chapters={analysis.chapters}
-                      onSeek={hasPlayer ? (time) => seekRef.current?.(time) : undefined}
-                    />
+                {analysis.audio_transcript && (
+                  <Section title={t('transcript.title')}>
+                    <blockquote className="rounded-xl border-l-2 border-brand-400 bg-ink-50 px-3.5 py-2.5 text-sm italic leading-relaxed text-ink-600 dark:bg-ink-800/60 dark:text-ink-300">
+                      {analysis.audio_transcript}
+                    </blockquote>
                   </Section>
-                ) : (
-                  analysis.audio_transcript && (
-                    <Section title={t('transcript.title')}>
-                      <blockquote className="rounded-xl border-l-2 border-brand-400 bg-ink-50 px-3.5 py-2.5 text-sm italic leading-relaxed text-ink-600 dark:bg-ink-800/60 dark:text-ink-300">
-                        {analysis.audio_transcript}
-                      </blockquote>
-                    </Section>
-                  )
                 )}
 
                 <Section title={t('result.scene')}>

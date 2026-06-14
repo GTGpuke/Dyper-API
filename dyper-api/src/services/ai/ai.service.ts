@@ -1,7 +1,7 @@
 // Service de communication avec dyper-ai — seule couche autorisée à appeler le moteur d'inférence.
 // Construit le payload ProcessRequest, gère l'authentification interne, les timeouts et les erreurs.
 import axios, { type AxiosError, type AxiosInstance } from 'axios';
-import type { AnalyzeType, ProcessAiResponse, ProcessOptions } from '../../types';
+import type { AnalyzeType, ModerationResult, ProcessAiResponse, ProcessOptions } from '../../types';
 import { AiProcessingError, AiServiceUnavailableError, AiTimeoutError } from '../../utils/errors';
 import { fileToBase64 } from '../../utils/fileToBase64';
 import { env } from '../env.service';
@@ -94,6 +94,59 @@ class AiService {
         aiMessage,
       });
       throw new AiProcessingError(aiMessage, { requestId, aiStatus: err.response.status });
+    }
+  }
+
+  /**
+   * Soumet une image ou un texte à la modération de dyper-ai (feed public « Global »).
+   * @throws {AiTimeoutError} Si dyper-ai ne répond pas dans les délais.
+   * @throws {AiServiceUnavailableError} Si dyper-ai est injoignable.
+   */
+  async moderate(body: {
+    kind: 'image' | 'text';
+    imageBase64?: string;
+    text?: string;
+    lang?: string;
+  }): Promise<ModerationResult> {
+    try {
+      const { data } = await this.client.post<ModerationResult>('/moderate', body);
+      return data;
+    } catch (e) {
+      const err = e as AxiosError<{ detail?: string; message?: string }>;
+      if (err.code === 'ECONNABORTED' || err.message?.includes('timeout')) {
+        throw new AiTimeoutError();
+      }
+      if (!err.response) {
+        throw new AiServiceUnavailableError({ reason: err.message });
+      }
+      const aiMessage =
+        err.response.data?.detail ?? err.response.data?.message ?? 'Erreur de modération IA.';
+      throw new AiProcessingError(aiMessage, { aiStatus: err.response.status });
+    }
+  }
+
+  /** Modère une image (miniature base64) : retourne { available, rating }. */
+  async moderateImage(imageBase64: string, lang = 'fr'): Promise<ModerationResult> {
+    return this.moderate({ kind: 'image', imageBase64, lang });
+  }
+
+  /** Modère un texte de commentaire : retourne { available, rating }. */
+  async moderateText(text: string, lang = 'fr'): Promise<ModerationResult> {
+    return this.moderate({ kind: 'text', text, lang });
+  }
+
+  /** Résout la miniature d'une vidéo de plateforme (aperçu). Best-effort : null sur tout échec. */
+  async resolveThumbnail(url: string): Promise<string | null> {
+    try {
+      const { data } = await this.client.post<{ thumbnailUrl: string | null }>('/thumbnail', {
+        url,
+      });
+      return data.thumbnailUrl ?? null;
+    } catch (e) {
+      logger.warn('Résolution de miniature indisponible.', {
+        error: e instanceof Error ? e.message : String(e),
+      });
+      return null;
     }
   }
 

@@ -48,7 +48,6 @@ export async function persistAnalysis(
       frame_detections: result.frames ?? null,
       music: result.music ?? null,
       transcript_segments: result.transcriptSegments ?? null,
-      chapters: result.chapters ?? null,
     });
   } catch (e) {
     logger.error("Échec de la persistance de l'analyse.", {

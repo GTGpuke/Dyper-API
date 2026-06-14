@@ -4,6 +4,10 @@ import Analysis from './Analysis';
 import ChatExchange from './ChatExchange';
 import Conversation from './Conversation';
 import Message from './Message';
+import Publication from './Publication';
+import PublicationComment from './PublicationComment';
+import PublicationReport from './PublicationReport';
+import PublicationVote from './PublicationVote';
 import User from './User';
 
 // Un échange de chat est rattaché à une analyse par son request_id (lien souple, sans contrainte FK
@@ -54,4 +58,40 @@ Analysis.hasMany(Message, {
   as: 'messages',
 });
 
-export { Analysis, ChatExchange, Conversation, Message, User };
+// Feed public « Global » : publications, votes, commentaires, signalements (liens souples sans FK).
+User.hasMany(Publication, { foreignKey: 'user_id', constraints: false, as: 'publications' });
+Publication.belongsTo(User, { foreignKey: 'user_id', constraints: false, as: 'user' });
+Analysis.hasOne(Publication, {
+  foreignKey: 'analysis_id',
+  sourceKey: 'id',
+  constraints: false,
+  as: 'publication',
+});
+Publication.belongsTo(Analysis, {
+  foreignKey: 'analysis_id',
+  targetKey: 'id',
+  constraints: false,
+  as: 'analysis',
+});
+Publication.hasMany(PublicationComment, {
+  foreignKey: 'publication_id',
+  constraints: false,
+  as: 'comments',
+});
+Publication.hasMany(PublicationVote, {
+  foreignKey: 'publication_id',
+  constraints: false,
+  as: 'votes',
+});
+
+export {
+  Analysis,
+  ChatExchange,
+  Conversation,
+  Message,
+  Publication,
+  PublicationComment,
+  PublicationReport,
+  PublicationVote,
+  User,
+};

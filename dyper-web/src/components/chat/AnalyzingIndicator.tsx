@@ -1,9 +1,10 @@
-// Indicateur d'analyse vivant : aperçu réel du média (image ou vidéo) balayé par une ligne
-// de scan, phrases techniques et clins d'œil en rotation, barre calibrée sur la durée estimée
-// du traitement, temps écoulé et avertissement de durée pour les vidéos.
-import { useEffect, useRef, useState } from 'react'
+// Indicateur d'analyse vivant : aperçu réel du média balayé par un réticule de scan, frise de
+// pipeline qui s'allume étape par étape, phrases techniques et clins d'œil en rotation, barre
+// calibrée sur la durée estimée, temps écoulé et avertissement de durée pour les vidéos.
 import { AnimatePresence, motion } from 'framer-motion'
+import { Fragment, useEffect, useRef, useState } from 'react'
 import { useI18n } from '../../contexts/I18nContext'
+import { cn } from '../../lib/cn'
 import { formatTimecode } from '../../utils/formatters'
 
 export interface AnalyzingPreview {
@@ -30,12 +31,20 @@ const PHRASES_VIDEO = [
   'analyzing.fun1',
   'analyzing.transcribe',
   'analyzing.fun3',
-  'analyzing.chapters',
   'analyzing.fun4',
   'analyzing.colors',
   'analyzing.fun5',
   'analyzing.report',
   'analyzing.fun6',
+]
+
+// Étapes réelles du pipeline (frise) selon le média.
+const STEPS_IMAGE = ['analyzing.step.detect', 'analyzing.step.scene', 'analyzing.step.report']
+const STEPS_VIDEO = [
+  'analyzing.step.detect',
+  'analyzing.step.scene',
+  'analyzing.step.transcribe',
+  'analyzing.step.report',
 ]
 
 // Estimation de la durée de traitement (secondes) selon le média.
@@ -73,15 +82,20 @@ export function AnalyzingIndicator({ preview, uploadPct }: Props) {
     ? phrases[Math.floor(elapsed / 3.5) % phrases.length]
     : 'analyzing.upload'
 
+  // Étape active de la frise, calée sur la fraction de progression post-téléversement.
+  const steps = preview?.isVideo ? STEPS_VIDEO : STEPS_IMAGE
+  const fraction = Math.max(0, pct - UPLOAD_SHARE) / (95 - UPLOAD_SHARE)
+  const activeStep = uploadDone ? Math.min(steps.length - 1, Math.floor(fraction * steps.length)) : -1
+
   return (
     <motion.div
       initial={{ opacity: 0, y: 8 }}
       animate={{ opacity: 1, y: 0 }}
-      className="surface flex max-w-xl flex-col gap-3 p-4"
+      className="surface flex max-w-xl flex-col gap-4 p-4"
     >
       <div className="flex items-center gap-4">
-        {/* Aperçu réel du média, balayé par la ligne de scan. */}
-        <div className="relative h-24 w-32 shrink-0 overflow-hidden rounded-xl bg-ink-900">
+        {/* Aperçu réel du média, balayé par le réticule de scan. */}
+        <div className="relative h-24 w-36 shrink-0 overflow-hidden rounded-xl bg-ink-900 ring-1 ring-violet-500/30">
           {preview?.url ? (
             preview.isVideo ? (
               <video
@@ -91,7 +105,9 @@ export function AnalyzingIndicator({ preview, uploadPct }: Props) {
                 autoPlay
                 playsInline
                 className="h-full w-full object-cover opacity-90"
-              />
+              >
+                <track kind="captions" />
+              </video>
             ) : (
               <img src={preview.url} alt="" className="h-full w-full object-cover opacity-90" />
             )
@@ -109,7 +125,12 @@ export function AnalyzingIndicator({ preview, uploadPct }: Props) {
               </svg>
             </div>
           )}
-          {/* Ligne de scan animée. */}
+
+          {/* Réticule : coins + ligne de scan animée. */}
+          <span className="pointer-events-none absolute left-1.5 top-1.5 h-3 w-3 border-l-2 border-t-2 border-violet-300/80" />
+          <span className="pointer-events-none absolute right-1.5 top-1.5 h-3 w-3 border-r-2 border-t-2 border-violet-300/80" />
+          <span className="pointer-events-none absolute bottom-1.5 left-1.5 h-3 w-3 border-b-2 border-l-2 border-violet-300/80" />
+          <span className="pointer-events-none absolute bottom-1.5 right-1.5 h-3 w-3 border-b-2 border-r-2 border-violet-300/80" />
           <motion.div
             className="absolute inset-x-0 h-10 bg-gradient-to-b from-transparent via-violet-400/60 to-transparent"
             animate={{ top: ['-25%', '110%'] }}
@@ -139,13 +160,18 @@ export function AnalyzingIndicator({ preview, uploadPct }: Props) {
             <p className="truncate text-xs text-ink-400 dark:text-ink-500">{preview.name}</p>
           )}
 
-          {/* Barre calibrée sur la durée estimée + temps écoulé. */}
+          {/* Barre calibrée sur la durée estimée (shimmer) + temps écoulé. */}
           <div className="mt-2 flex items-center gap-2.5">
-            <div className="h-1.5 min-w-0 flex-1 overflow-hidden rounded-full bg-ink-100 dark:bg-ink-800">
+            <div className="relative h-1.5 min-w-0 flex-1 overflow-hidden rounded-full bg-ink-100 dark:bg-ink-800">
               <motion.div
                 className="h-full rounded-full bg-gradient-to-r from-blue-500 to-violet-500"
                 animate={{ width: `${pct}%` }}
                 transition={{ ease: 'easeOut', duration: 0.4 }}
+              />
+              <motion.div
+                className="absolute inset-y-0 w-1/3 bg-gradient-to-r from-transparent via-white/40 to-transparent"
+                animate={{ left: ['-33%', '100%'] }}
+                transition={{ repeat: Number.POSITIVE_INFINITY, duration: 1.4, ease: 'easeInOut' }}
               />
             </div>
             <span className="shrink-0 font-mono text-[11px] tabular-nums text-ink-400 dark:text-ink-500">
@@ -155,9 +181,59 @@ export function AnalyzingIndicator({ preview, uploadPct }: Props) {
         </div>
       </div>
 
+      {/* Frise du pipeline : étapes réelles qui s'allument. */}
+      <ol className="flex items-center gap-1.5 border-t border-ink-100 pt-3 dark:border-ink-800">
+        {steps.map((key, i) => {
+          const done = i < activeStep
+          const active = i === activeStep
+          return (
+            <Fragment key={key}>
+              {i > 0 && (
+                <span
+                  className={cn(
+                    'h-px min-w-3 flex-1 transition-colors',
+                    i <= activeStep ? 'bg-brand-400' : 'bg-ink-200 dark:bg-ink-700'
+                  )}
+                />
+              )}
+              <span className="flex items-center gap-1.5">
+                <span
+                  className={cn(
+                    'grid h-5 w-5 shrink-0 place-items-center rounded-full text-[10px] font-semibold transition-colors',
+                    done
+                      ? 'bg-emerald-500 text-white'
+                      : active
+                        ? 'animate-pulse bg-brand-500 text-white'
+                        : 'bg-ink-100 text-ink-400 dark:bg-ink-800 dark:text-ink-500'
+                  )}
+                >
+                  {done ? (
+                    <svg className="h-3 w-3" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round">
+                      <path d="M5 12l5 5L20 7" />
+                    </svg>
+                  ) : (
+                    i + 1
+                  )}
+                </span>
+                <span
+                  className={cn(
+                    'hidden whitespace-nowrap text-xs sm:inline',
+                    active
+                      ? 'font-medium text-ink-700 dark:text-ink-200'
+                      : 'text-ink-400 dark:text-ink-500'
+                  )}
+                >
+                  {t(key)}
+                </span>
+              </span>
+            </Fragment>
+          )
+        })}
+      </ol>
+
       {/* Avertissement de durée : l'analyse approfondie d'une vidéo est longue, c'est normal. */}
       {preview?.isVideo && (
-        <p className="border-t border-ink-100 pt-2.5 text-xs leading-relaxed text-ink-400 dark:border-ink-800 dark:text-ink-500">
+        <p className="text-xs leading-relaxed text-ink-400 dark:text-ink-500">
           ⏳ {t('analyzing.longNotice')}
         </p>
       )}

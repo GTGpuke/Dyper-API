@@ -60,15 +60,6 @@ export interface TranscriptSegment {
   text: string;
 }
 
-/** Chapitre d'analyse vidéo : ce qu'on voit et ce qu'on entend sur un intervalle. */
-export interface Chapter {
-  tStart: number;
-  tEnd: number;
-  description: string | null;
-  elements: string[];
-  transcript: string | null;
-}
-
 /** Réponse brute du service d'inférence dyper-ai (POST /process). */
 export interface ProcessAiResponse {
   requestId: string;
@@ -83,9 +74,8 @@ export interface ProcessAiResponse {
   sourceHeight?: number | null;
   audioTranscript?: string | null;
   frames?: FrameDetections[] | null;
-  music?: MusicInfo | null;
+  music?: MusicInfo[] | null;
   transcriptSegments?: TranscriptSegment[] | null;
-  chapters?: Chapter[] | null;
   /** Vidéo téléchargée depuis une URL de plateforme (base64) — à stocker côté passerelle. */
   videoBase64?: string | null;
 }
@@ -120,10 +110,8 @@ export interface ChatContext {
   timeline?: TimelineEntry[] | null;
   /** Transcription audio (vidéos) — enrichit le prompt système. */
   audioTranscript?: string | null;
-  /** Bande-son identifiée (vidéos) — enrichit le prompt système. */
-  music?: MusicInfo | null;
-  /** Chapitres alignés vision/audio (vidéos) — enrichit le prompt système. */
-  chapters?: Chapter[] | null;
+  /** Bandes-son identifiées (vidéos) — enrichit le prompt système. */
+  music?: MusicInfo[] | null;
 }
 
 // ─── Préférences utilisateur (colonne JSON `settings` du modèle User) ──────────
@@ -187,9 +175,8 @@ export interface InlineAnalysis {
   audioTranscript: string | null;
   videoUrl: string | null;
   frames: FrameDetections[] | null;
-  music: MusicInfo | null;
+  music: MusicInfo[] | null;
   transcriptSegments: TranscriptSegment[] | null;
-  chapters: Chapter[] | null;
 }
 
 /** Vue d'un message renvoyée au client (analyse inlinée si carte). */
@@ -202,4 +189,36 @@ export interface MessageView {
   seq: number;
   createdAt: Date;
   analysis: InlineAnalysis | null;
+}
+
+// ─── Feed public « Global » ──────────────────────────────────────────────────
+
+/** Vote d'un utilisateur sur une publication : +1, -1 ou 0 (aucun). */
+export type PublicVote = -1 | 0 | 1;
+
+/** Snapshot figé des champs d'affichage d'une analyse publiée (indépendant du chat de suivi). */
+export interface PublicationPayload {
+  description: string;
+  model: string;
+  lang: string;
+  sceneLabel: string;
+  sceneConfidence: number;
+  indoor: boolean | null;
+  objectsCount: number;
+  tags: string[];
+  colors: string[];
+  sourceWidth: number | null;
+  sourceHeight: number | null;
+  timeline: TimelineEntry[] | null;
+  objects: DetectedObject[] | null;
+  frameDetections: FrameDetections[] | null;
+  music: MusicInfo[] | null;
+  transcriptSegments: TranscriptSegment[] | null;
+  audioTranscript: string | null;
+}
+
+/** Verdict de modération renvoyé par dyper-ai (POST /moderate). */
+export interface ModerationResult {
+  available: boolean;
+  rating: string | null;
 }

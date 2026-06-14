@@ -51,24 +51,35 @@ def _get_client() -> Any:
 
 
 def build_ffmpeg_command(
-    ffmpeg_path: str, video_path: str, audio_path: str, max_seconds: int | None = None
+    ffmpeg_path: str,
+    video_path: str,
+    audio_path: str,
+    max_seconds: int | None = None,
+    start_seconds: int = 0,
 ) -> list[str]:
     """Construit la commande d'extraction audio : mono, 16 kHz, AAC (léger pour les APIs).
 
-    `max_seconds` limite la durée extraite (extrait court pour le fingerprinting musical).
+    `max_seconds` limite la durée extraite (extrait court pour le fingerprinting musical) ;
+    `start_seconds` décale le début de l'extrait (sondage de plusieurs moments de la vidéo).
     """
-    command = [ffmpeg_path, "-y", "-i", video_path, "-vn", "-ac", "1", "-ar", "16000"]
+    command = [ffmpeg_path, "-y"]
+    if start_seconds:
+        command += ["-ss", str(start_seconds)]
+    command += ["-i", video_path, "-vn", "-ac", "1", "-ar", "16000"]
     if max_seconds is not None:
         command += ["-t", str(max_seconds)]
     command += ["-c:a", "aac", "-b:a", "48k", audio_path]
     return command
 
 
-def extract_audio(video_path: str, max_seconds: int | None = None) -> str | None:
+def extract_audio(
+    video_path: str, max_seconds: int | None = None, start_seconds: int = 0
+) -> str | None:
     """Extrait la piste audio d'une vidéo vers un fichier temporaire .m4a.
 
-    Retourne le chemin du fichier audio, ou None si la vidéo n'a pas de piste audio,
-    si ffmpeg échoue, ou si le résultat dépasse la limite de taille des APIs.
+    `start_seconds` décale le début de l'extrait (sondage de plusieurs moments). Retourne le
+    chemin du fichier, ou None si la vidéo n'a pas de piste audio (ou plus à cet instant), si
+    ffmpeg échoue, ou si le résultat dépasse la limite de taille des APIs.
     """
     import imageio_ffmpeg
 
@@ -76,7 +87,7 @@ def extract_audio(video_path: str, max_seconds: int | None = None) -> str | None
     os.close(fd)
     try:
         command = build_ffmpeg_command(
-            imageio_ffmpeg.get_ffmpeg_exe(), video_path, audio_path, max_seconds
+            imageio_ffmpeg.get_ffmpeg_exe(), video_path, audio_path, max_seconds, start_seconds
         )
         completed = subprocess.run(command, capture_output=True, timeout=60, check=False)
         if completed.returncode != 0 or not os.path.exists(audio_path):
@@ -184,38 +195,59 @@ async def recognize_music_file(audio_path: str) -> MusicInfo | None:
         return None
 
 
+async def recognize_music(video_path: str) -> list[MusicInfo]:
+    """Identifie la/les bande(s)-son d'une vidéo par fingerprinting AudD sur plusieurs extraits.
+
+    Sonde des extraits courts répartis dans le temps (intervalle `MUSIC_PROBE_INTERVAL_S`,
+    plafonné par `MUSIC_MAX_TRACKS`) et déduplique les titres (artiste + titre). Liste vide si
+    AudD n'est pas configuré ou si rien n'est reconnu.
+    """
+    if not music_available():
+        return []
+
+    found: list[MusicInfo] = []
+    seen: set[tuple[str, str]] = set()
+    for index in range(settings.MUSIC_MAX_TRACKS):
+        excerpt = extract_audio(
+            video_path,
+            max_seconds=settings.MUSIC_EXCERPT_S,
+            start_seconds=index * settings.MUSIC_PROBE_INTERVAL_S,
+        )
+        if excerpt is None:
+            break  # Plus d'audio exploitable (fin de la vidéo atteinte).
+        try:
+            track = await recognize_music_file(excerpt)
+        finally:
+            _cleanup(excerpt)
+        if track is None:
+            continue
+        key = (track.artist.lower(), track.title.lower())
+        if key not in seen:
+            seen.add(key)
+            found.append(track)
+    return found
+
+
 async def analyze_audio(
     video_path: str,
-) -> tuple[str | None, list[TranscriptSegment] | None, MusicInfo | None]:
+) -> tuple[str | None, list[TranscriptSegment] | None, list[MusicInfo]]:
     """Analyse complète de la piste audio : transcription horodatée + reconnaissance musicale.
 
-    L'extraction est faite une seule fois (piste complète pour Whisper, extrait court pour
-    le fingerprinting AudD), puis les deux appels réseau sont exécutés en parallèle.
-    Retourne (texte complet, tranches horodatées, musique).
+    La transcription (piste complète, Whisper) et la reconnaissance musicale multi-titres (AudD)
+    sont exécutées en parallèle. Retourne (texte complet, tranches horodatées, liste des bandes-son).
     """
     if not is_available() and not music_available():
-        return None, None, None
+        return None, None, []
 
     full_path = extract_audio(video_path)
     if full_path is None:
-        return None, None, None
+        return None, None, []
 
-    excerpt_path = (
-        extract_audio(video_path, max_seconds=settings.MUSIC_EXCERPT_S)
-        if music_available()
-        else None
-    )
     try:
-        (transcript, segments), music = await asyncio.gather(
+        (transcript, segments), musics = await asyncio.gather(
             transcribe_file(full_path),
-            recognize_music_file(excerpt_path) if excerpt_path else _none(),
+            recognize_music(video_path),
         )
-        return transcript, segments, music
+        return transcript, segments, musics
     finally:
         _cleanup(full_path)
-        _cleanup(excerpt_path)
-
-
-async def _none() -> None:
-    """Coroutine neutre pour aligner asyncio.gather quand la reconnaissance est désactivée."""
-    return None
