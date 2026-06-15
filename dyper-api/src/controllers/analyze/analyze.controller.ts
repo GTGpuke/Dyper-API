@@ -4,15 +4,33 @@ import type { FastifyReply, FastifyRequest } from 'fastify';
 import { v4 as uuidv4 } from 'uuid';
 import aiService from '../../services/ai/ai.service';
 import { persistAnalysis } from '../../services/analysis/persist.service';
+import { acquireSlot, type ReleaseSlot } from '../../services/capacity/capacity.service';
 import { env } from '../../services/env.service';
 import logger from '../../services/logger.service';
+import {
+  apiQueuePriority,
+  assertApiWithinQuota,
+  assertWithinQuota,
+  queuePriority,
+  recordAnalysisUsage,
+  recordApiUsage,
+} from '../../services/plan/plan.service';
 import type { AnalysisResult, ProcessAiResponse } from '../../types';
-import { FileTooLargeError, InvalidFileTypeError, ValidationError } from '../../utils/errors';
+import { InvalidFileTypeError, ValidationError } from '../../utils/errors';
 import { isVideoPlatformUrl } from '../../utils/videoUrl';
 
 interface AnalyzeBody {
   prompt?: string;
   lang?: string;
+}
+
+// Détecte une annulation volontaire (client déconnecté) : AbortError natif ou annulation Axios.
+function isAbortError(e: unknown): boolean {
+  if (e instanceof Error) {
+    const name = e.name.toLowerCase();
+    if (name.includes('abort') || name.includes('cancel')) return true;
+  }
+  return (e as { code?: string } | null)?.code === 'ERR_CANCELED';
 }
 
 interface AnalyzeUrlBody extends AnalyzeBody {
@@ -63,30 +81,60 @@ export async function analyzeFile(request: FastifyRequest, reply: FastifyReply):
     throw new ValidationError('Aucun fichier fourni. Le champ « file » est requis.');
   }
 
-  // Borne de taille par type : vidéo plus permissive (5 min) que image.
+  // Quota selon le mode d'authentification : forfait API (clé développeur) ou forfait du site
+  // (session). Vérifie la taille de fichier + le volume mensuel autorisé.
   const isVideo = mimetype.startsWith('video/');
-  const maxMb = isVideo ? env.MAX_VIDEO_SIZE_MB : env.MAX_FILE_SIZE_MB;
-  if (fileBuffer.length > maxMb * 1024 * 1024) {
-    throw new FileTooLargeError({ maxMb, received: fileBuffer.length });
+  const userId = request.authUser?.id as string;
+  const viaApi = request.authVia === 'apikey';
+  const priority = viaApi
+    ? apiQueuePriority(
+        await assertApiWithinQuota(userId, { isVideo, fileBytes: fileBuffer.length })
+      )
+    : queuePriority(await assertWithinQuota(userId, { isVideo, fileBytes: fileBuffer.length }));
+
+  logger.info('Analyse de fichier démarrée.', { requestId, mimetype, viaApi });
+
+  // Annulation : la déconnexion du client (bouton Stop) interrompt l'appel à dyper-ai.
+  const ac = new AbortController();
+  request.raw.on('close', () => ac.abort());
+
+  // Allocation de capacité : attend un créneau de calcul (priorité selon le forfait).
+  let release: ReleaseSlot | undefined;
+  try {
+    release = await acquireSlot(priority, ac.signal);
+    const aiResponse = await aiService.process({
+      requestId,
+      fileBuffer,
+      mimetype,
+      prompt,
+      lang,
+      signal: ac.signal,
+    });
+    const processingTime = Date.now() - startTime;
+    const resolvedLang = lang ?? 'fr';
+
+    logger.info('Analyse de fichier terminée.', { requestId, processingTime });
+    // Les vidéos originales sont conservées sur disque pour la relecture annotée.
+    await persistAnalysis(
+      aiResponse,
+      isVideo ? 'video' : 'image',
+      resolvedLang,
+      request.authUser?.id ?? null,
+      isVideo ? fileBuffer : null
+    );
+    if (viaApi) await recordApiUsage(userId);
+    else await recordAnalysisUsage(userId, { isVideo, aiResponse });
+
+    sendResult(reply, requestId, processingTime, aiResponse, resolvedLang);
+  } catch (e) {
+    if (isAbortError(e)) {
+      logger.info('Analyse de fichier annulée (client déconnecté).', { requestId });
+      return;
+    }
+    throw e;
+  } finally {
+    release?.();
   }
-
-  logger.info('Analyse de fichier démarrée.', { requestId, mimetype });
-
-  const aiResponse = await aiService.process({ requestId, fileBuffer, mimetype, prompt, lang });
-  const processingTime = Date.now() - startTime;
-  const resolvedLang = lang ?? 'fr';
-
-  logger.info('Analyse de fichier terminée.', { requestId, processingTime });
-  // Les vidéos originales sont conservées sur disque pour la relecture annotée.
-  await persistAnalysis(
-    aiResponse,
-    isVideo ? 'video' : 'image',
-    resolvedLang,
-    request.authUser?.id ?? null,
-    isVideo ? fileBuffer : null
-  );
-
-  sendResult(reply, requestId, processingTime, aiResponse, resolvedLang);
 }
 
 // POST /api/analyze/url — Analyse depuis une URL d'image.
@@ -102,25 +150,53 @@ export async function analyzeUrl(
 
   // URL de plateforme vidéo (YouTube / Twitch) → analyse vidéo complète ; sinon image.
   const isPlatformVideo = isVideoPlatformUrl(url);
-  const aiResponse = await aiService.process(
-    isPlatformVideo
-      ? { requestId, videoUrl: url, prompt, lang }
-      : { requestId, imageUrl: url, prompt, lang }
-  );
-  const processingTime = Date.now() - startTime;
-  const resolvedLang = lang ?? 'fr';
+  // Quota selon le mode d'auth (volume mensuel ; pas de fichier local pour une URL).
+  const userId = request.authUser?.id as string;
+  const viaApi = request.authVia === 'apikey';
+  const priority = viaApi
+    ? apiQueuePriority(await assertApiWithinQuota(userId, { isVideo: isPlatformVideo }))
+    : queuePriority(await assertWithinQuota(userId, { isVideo: isPlatformVideo }));
 
-  logger.info('Analyse par URL terminée.', { requestId, processingTime });
-  const videoBuffer = aiResponse.videoBase64 ? Buffer.from(aiResponse.videoBase64, 'base64') : null;
-  await persistAnalysis(
-    aiResponse,
-    isPlatformVideo ? 'video' : 'image',
-    resolvedLang,
-    request.authUser?.id ?? null,
-    videoBuffer
-  );
+  // Annulation : la déconnexion du client (bouton Stop) interrompt l'appel à dyper-ai.
+  const ac = new AbortController();
+  request.raw.on('close', () => ac.abort());
 
-  sendResult(reply, requestId, processingTime, aiResponse, resolvedLang);
+  // Allocation de capacité : attend un créneau de calcul (priorité selon le forfait).
+  let release: ReleaseSlot | undefined;
+  try {
+    release = await acquireSlot(priority, ac.signal);
+    const aiResponse = await aiService.process(
+      isPlatformVideo
+        ? { requestId, videoUrl: url, prompt, lang, signal: ac.signal }
+        : { requestId, imageUrl: url, prompt, lang, signal: ac.signal }
+    );
+    const processingTime = Date.now() - startTime;
+    const resolvedLang = lang ?? 'fr';
+
+    logger.info('Analyse par URL terminée.', { requestId, processingTime });
+    const videoBuffer = aiResponse.videoBase64
+      ? Buffer.from(aiResponse.videoBase64, 'base64')
+      : null;
+    await persistAnalysis(
+      aiResponse,
+      isPlatformVideo ? 'video' : 'image',
+      resolvedLang,
+      request.authUser?.id ?? null,
+      videoBuffer
+    );
+    if (viaApi) await recordApiUsage(userId);
+    else await recordAnalysisUsage(userId, { isVideo: isPlatformVideo, aiResponse });
+
+    sendResult(reply, requestId, processingTime, aiResponse, resolvedLang);
+  } catch (e) {
+    if (isAbortError(e)) {
+      logger.info('Analyse par URL annulée (client déconnecté).', { requestId });
+      return;
+    }
+    throw e;
+  } finally {
+    release?.();
+  }
 }
 
 // POST /api/analyze/thumbnail — Miniature d'une vidéo de plateforme (aperçu composer, best-effort).
@@ -145,12 +221,38 @@ export async function analyzePrompt(
 
   logger.info('Analyse par prompt démarrée.', { requestId });
 
-  const aiResponse = await aiService.process({ requestId, prompt, lang });
-  const processingTime = Date.now() - startTime;
-  const resolvedLang = lang ?? 'fr';
+  // Quota selon le mode d'auth (volume mensuel d'analyses).
+  const userId = request.authUser?.id as string;
+  const viaApi = request.authVia === 'apikey';
+  const priority = viaApi
+    ? apiQueuePriority(await assertApiWithinQuota(userId, { isVideo: false }))
+    : queuePriority(await assertWithinQuota(userId, { isVideo: false }));
 
-  logger.info('Analyse par prompt terminée.', { requestId, processingTime });
-  await persistAnalysis(aiResponse, 'prompt', resolvedLang, request.authUser?.id ?? null);
+  // Annulation : la déconnexion du client (bouton Stop) interrompt l'appel à dyper-ai.
+  const ac = new AbortController();
+  request.raw.on('close', () => ac.abort());
 
-  sendResult(reply, requestId, processingTime, aiResponse, resolvedLang);
+  // Allocation de capacité : attend un créneau de calcul (priorité selon le forfait).
+  let release: ReleaseSlot | undefined;
+  try {
+    release = await acquireSlot(priority, ac.signal);
+    const aiResponse = await aiService.process({ requestId, prompt, lang, signal: ac.signal });
+    const processingTime = Date.now() - startTime;
+    const resolvedLang = lang ?? 'fr';
+
+    logger.info('Analyse par prompt terminée.', { requestId, processingTime });
+    await persistAnalysis(aiResponse, 'prompt', resolvedLang, request.authUser?.id ?? null);
+    if (viaApi) await recordApiUsage(userId);
+    else await recordAnalysisUsage(userId, { isVideo: false, aiResponse });
+
+    sendResult(reply, requestId, processingTime, aiResponse, resolvedLang);
+  } catch (e) {
+    if (isAbortError(e)) {
+      logger.info('Analyse par prompt annulée (client déconnecté).', { requestId });
+      return;
+    }
+    throw e;
+  } finally {
+    release?.();
+  }
 }

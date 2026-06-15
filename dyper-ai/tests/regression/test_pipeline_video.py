@@ -187,7 +187,7 @@ class TestPipelineVideo:
         assert data["description"] == "Compte rendu vision détaillé de la vidéo."
         assert data["audioTranscript"] == "Bonjour à tous."
         assert data["music"] == [
-            {"artist": "Daft Punk", "title": "Around the World", "album": None}
+            {"artist": "Daft Punk", "title": "Around the World", "album": None, "link": None}
         ]
         # L'audio est analysé AVANT la vision et lui est transmis (transcript + musique).
         assert vision_mock.call_args.kwargs["music_summary"] == "Daft Punk — Around the World"

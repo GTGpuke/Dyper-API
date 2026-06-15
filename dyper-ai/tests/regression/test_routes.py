@@ -193,8 +193,8 @@ class TestRouteProcess:
             )
         assert response.status_code == 200
         data = response.json()
-        # Sans éléments vision, le vocabulaire ouvert se réduit à la base étendue. COCO reste
-        # prioritaire dans la fusion (mock YoloRunner → person), la description vision est gardée.
+        # Sans éléments vision (et sans base LVIS par défaut), le vocabulaire ouvert est vide :
+        # World ne tourne pas, COCO reste seul (mock YoloRunner → person), la description est gardée.
         assert data["visualization"]["objects"][0]["label"] == "person"
         assert data["description"] == "Un compte rendu sans éléments."
 

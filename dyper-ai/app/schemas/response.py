@@ -39,6 +39,11 @@ class DetectedObject(BaseModel):
     trackId: int | None = Field(
         default=None, description="Identifiant de piste stable entre frames (vidéos trackées)."
     )
+    priority: bool = Field(
+        default=True,
+        description="Détection prioritaire (confiance ≥ seuil). Les non prioritaires (vocabulaire "
+        "ouvert sous le seuil) sont conservées mais décochées par défaut à l'affichage.",
+    )
 
 
 class Scene(BaseModel):
@@ -85,6 +90,9 @@ class MusicInfo(BaseModel):
     artist: str = Field(..., description="Artiste identifié.")
     title: str = Field(..., description="Titre du morceau.")
     album: str | None = Field(default=None, description="Album, si connu.")
+    link: str | None = Field(
+        default=None, description="Lien d'écoute (page multi-plateformes AudD), si disponible."
+    )
 
 
 class TranscriptSegment(BaseModel):

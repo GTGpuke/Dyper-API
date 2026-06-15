@@ -5,9 +5,11 @@ import { useI18n } from '../../contexts/I18nContext'
 export function AttachMenu({
   onPickFile,
   onSubmitUrl,
+  disabled = false,
 }: {
   onPickFile: (file: File) => void
   onSubmitUrl: (url: string) => void
+  disabled?: boolean
 }) {
   const { t } = useI18n()
   const [open, setOpen] = useState(false)
@@ -56,7 +58,8 @@ export function AttachMenu({
       <button
         type="button"
         onClick={() => setOpen((v) => !v)}
-        className="grid h-9 w-9 place-items-center rounded-xl text-ink-500 transition-colors hover:bg-ink-100 hover:text-ink-700 dark:text-ink-400 dark:hover:bg-ink-700 dark:hover:text-ink-200"
+        disabled={disabled}
+        className="grid h-9 w-9 place-items-center rounded-xl text-ink-500 transition-colors hover:bg-ink-100 hover:text-ink-700 disabled:cursor-not-allowed disabled:opacity-50 disabled:hover:bg-transparent dark:text-ink-400 dark:hover:bg-ink-700 dark:hover:text-ink-200"
         aria-label={t('chat.composer.attach')}
         title={t('chat.composer.attach')}
         aria-expanded={open}

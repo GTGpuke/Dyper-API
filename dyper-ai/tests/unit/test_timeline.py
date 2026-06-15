@@ -1,7 +1,12 @@
 """Tests unitaires du lissage de la chronologie d'apparition et des labels de piste."""
 
 import pytest
-from app.routes.process import build_detection_summary, fill_track_gaps, stabilize_track_labels
+from app.routes.process import (
+    build_detection_summary,
+    drop_transient_tracks,
+    fill_track_gaps,
+    stabilize_track_labels,
+)
 from app.schemas.response import BoundingBox, DetectedObject, FrameDetections
 
 
@@ -84,7 +89,7 @@ def _obj(label: str, track: int | None, conf: float) -> DetectedObject:
 
 @pytest.mark.unit
 class TestStabilizeTrackLabels:
-    """Tests du lissage de label par piste (label le plus probable, pondéré par la confiance)."""
+    """Tests du lissage de label par piste (label vu sur le plus de frames, confiance en départage)."""
 
     def test_label_dominant_reecrit_toutes_les_frames(self):
         """Vérifie que la piste prend son label dominant sur toutes ses frames."""
@@ -96,13 +101,26 @@ class TestStabilizeTrackLabels:
         stabilize_track_labels(frames)
         assert [frame.objects[0].label for frame in frames] == ["car", "car", "car"]
 
-    def test_vote_pondere_par_confiance(self):
-        """Vérifie que la confiance prime sur le simple nombre d'occurrences."""
-        # « truck » 2× à 0,3 (= 0,6) contre « car » 1× à 0,9 → « car » l'emporte.
+    def test_label_bref_tres_confiant_ne_detourne_pas_la_piste(self):
+        """Vérifie qu'un label parasite bref mais très confiant ne capture pas l'identité.
+
+        Cas du chat flou sur un canapé net : « couch » détecté une fois à 0,99 ne doit pas
+        l'emporter sur « cat » vu sur davantage de frames, même moins confiantes.
+        """
         frames = [
-            FrameDetections(t=0.0, objects=[_obj("truck", 7, 0.3)]),
-            FrameDetections(t=1.0, objects=[_obj("truck", 7, 0.3)]),
-            FrameDetections(t=2.0, objects=[_obj("car", 7, 0.9)]),
+            FrameDetections(t=0.0, objects=[_obj("cat", 7, 0.5)]),
+            FrameDetections(t=1.0, objects=[_obj("cat", 7, 0.5)]),
+            FrameDetections(t=2.0, objects=[_obj("couch", 7, 0.99)]),
+            FrameDetections(t=3.0, objects=[_obj("cat", 7, 0.5)]),
+        ]
+        stabilize_track_labels(frames)
+        assert {frame.objects[0].label for frame in frames} == {"cat"}
+
+    def test_egalite_departagee_par_confiance(self):
+        """Vérifie qu'à nombre de frames égal, la confiance cumulée départage le label."""
+        frames = [
+            FrameDetections(t=0.0, objects=[_obj("car", 7, 0.9)]),
+            FrameDetections(t=1.0, objects=[_obj("truck", 7, 0.4)]),
         ]
         stabilize_track_labels(frames)
         assert {frame.objects[0].label for frame in frames} == {"car"}
@@ -115,6 +133,46 @@ class TestStabilizeTrackLabels:
         ]
         stabilize_track_labels(frames)
         assert [frame.objects[0].label for frame in frames] == ["car", "bus"]
+
+
+@pytest.mark.unit
+class TestDropTransientTracks:
+    """Tests du filtre des pistes fugaces (hallucinations brèves du vocabulaire ouvert)."""
+
+    def test_piste_trop_courte_ecartee(self):
+        """Vérifie qu'une piste vue sur trop peu de frames est retirée, la durable conservée."""
+        frames = [
+            FrameDetections(t=0.0, objects=[_obj("cat", 1, 0.9), _obj("birdbath", 2, 0.8)]),
+            FrameDetections(t=1.0, objects=[_obj("cat", 1, 0.9)]),
+            FrameDetections(t=2.0, objects=[_obj("cat", 1, 0.9)]),
+        ]
+        drop_transient_tracks(frames, min_frames=3)
+        labels = [obj.label for frame in frames for obj in frame.objects]
+        assert "birdbath" not in labels  # Piste fugace (1 frame) écartée.
+        assert labels.count("cat") == 3  # Piste durable (3 frames) conservée.
+
+    def test_objets_sans_piste_conserves(self):
+        """Vérifie que les détections sans trackId ne sont jamais filtrées."""
+        frames = [FrameDetections(t=0.0, objects=[_obj("musique", None, 0.8)])]
+        drop_transient_tracks(frames, min_frames=3)
+        assert [obj.label for obj in frames[0].objects] == ["musique"]
+
+    def test_listes_miroir_filtrees_aussi(self):
+        """Vérifie que les listes miroir (objets agrégés) sont filtrées de la même piste fugace."""
+        fugace = _obj("necklace", 9, 0.7)
+        frames = [
+            FrameDetections(t=0.0, objects=[_obj("dog", 1, 0.9), fugace]),
+            FrameDetections(t=1.0, objects=[_obj("dog", 1, 0.9)]),
+        ]
+        agrege = [_obj("dog", 1, 0.9), _obj("necklace", 9, 0.7)]
+        drop_transient_tracks(frames, min_frames=2, mirrors=[agrege])
+        assert [obj.label for obj in agrege] == ["dog"]  # La piste fugace 9 a disparu du miroir.
+
+    def test_seuil_un_desactive_le_filtre(self):
+        """Vérifie qu'un seuil ≤ 1 conserve toutes les pistes (filtre désactivé)."""
+        frames = [FrameDetections(t=0.0, objects=[_obj("birdbath", 2, 0.8)])]
+        drop_transient_tracks(frames, min_frames=1)
+        assert [obj.label for obj in frames[0].objects] == ["birdbath"]
 
 
 @pytest.mark.unit

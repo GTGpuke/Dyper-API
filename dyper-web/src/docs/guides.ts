@@ -324,6 +324,84 @@ for (;;) {
       },
     ],
   },
+  {
+    id: 'api-access',
+    title: L('Accès API & clés', 'API access & keys'),
+    intro: L(
+      "Accédez à Dyper depuis vos propres applications avec une clé API. L'abonnement API est distinct du forfait du site et possède ses propres quotas.",
+      'Access Dyper from your own apps with an API key. The API subscription is separate from the website plan and has its own quotas.'
+    ),
+    blocks: [
+      { type: 'h2', text: L('Deux modes d’authentification', 'Two authentication modes') },
+      {
+        type: 'p',
+        text: L(
+          "Le site web utilise la clé applicative (X-App-Key) + un cookie de session. Pour un accès programmatique, utilisez plutôt une CLÉ API personnelle : un seul header « Authorization: Bearer », ni clé applicative ni cookie. Le mode d'authentification détermine le forfait appliqué — site ou API.",
+          'The website uses the application key (X-App-Key) + a session cookie. For programmatic access, use a personal API KEY instead: a single “Authorization: Bearer” header, no app key or cookie. The authentication mode determines which plan applies — website or API.'
+        ),
+      },
+      { type: 'h2', text: L('Créer une clé', 'Create a key') },
+      {
+        type: 'p',
+        text: L(
+          'Depuis l’espace Développeurs de l’application, créez une clé. Le secret (« dyk_live_… ») n’est affiché qu’une seule fois : copiez-le immédiatement. Vous pouvez créer plusieurs clés et les révoquer à tout moment.',
+          'From the app’s Developers area, create a key. The secret (“dyk_live_…”) is shown only once: copy it immediately. You can create several keys and revoke them anytime.'
+        ),
+      },
+      { type: 'h2', text: L('Appeler l’API', 'Call the API') },
+      {
+        type: 'code',
+        title: 'curl',
+        language: 'bash',
+        code: `curl -X POST "https://dyper.app/api/v1/analyze/prompt" \\
+  -H "Authorization: Bearer dyk_live_votre_cle" \\
+  -H "Content-Type: application/json" \\
+  -d '{"prompt": "Que vois-tu ?"}'`,
+      },
+      {
+        type: 'code',
+        title: 'Python',
+        language: 'python',
+        code: `import requests
+
+res = requests.post(
+    "https://dyper.app/api/v1/analyze/url",
+    headers={"Authorization": "Bearer dyk_live_votre_cle"},
+    json={"url": "https://exemple.fr/image.jpg"},
+)
+print(res.json())`,
+      },
+      { type: 'h2', text: L('Forfaits API', 'API plans') },
+      {
+        type: 'table',
+        headers: [
+          L('Forfait', 'Plan'),
+          L('Requêtes / mois', 'Requests / month'),
+          L('Débit', 'Rate'),
+          L('Fichier max (image / vidéo)', 'Max file (image / video)'),
+        ],
+        rows: [
+          [L('Free (sans abonnement)', 'Free (no subscription)'), L('100', '100'), L('10 / min', '10 / min'), L('10 / 30 Mo', '10 / 30 MB')],
+          [L('Starter', 'Starter'), L('5 000', '5,000'), L('60 / min', '60 / min'), L('20 / 100 Mo', '20 / 100 MB')],
+          [L('Business', 'Business'), L('50 000', '50,000'), L('300 / min', '300 / min'), L('20 / 100 Mo', '20 / 100 MB')],
+        ],
+      },
+      {
+        type: 'callout',
+        text: L(
+          'Sans abonnement API, l’accès reste possible mais limité (forfait Free). Le dépassement de quota renvoie un code 402 ; un fichier trop volumineux, 413 ; une clé invalide ou révoquée, 401.',
+          'Without an API subscription, access remains possible but limited (Free plan). Exceeding the quota returns 402; a file too large, 413; an invalid or revoked key, 401.'
+        ),
+      },
+      {
+        type: 'p',
+        text: L(
+          'Les routes de gestion de compte (/me, conversations, feed) ne sont PAS accessibles par clé API : elles requièrent une session sur le site. Les clés API donnent accès à l’analyse (/analyze) et à la consultation des analyses (/analyses).',
+          'Account-management routes (/me, conversations, feed) are NOT accessible via API key: they require a website session. API keys grant access to analysis (/analyze) and reading analyses (/analyses).'
+        ),
+      },
+    ],
+  },
 ]
 
 /** Retourne un guide par identifiant, ou undefined. */

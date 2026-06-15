@@ -16,6 +16,8 @@ export interface DetectedObject {
   boundingBox?: BoundingBox;
   /** Identifiant de piste stable entre frames (vidéos trackées). */
   trackId?: number | null;
+  /** Détection prioritaire (confiance ≥ seuil) ; les non prioritaires sont décochées par défaut. */
+  priority?: boolean;
 }
 
 /** Scène inférée à partir des objets détectés. */
@@ -51,6 +53,8 @@ export interface MusicInfo {
   artist: string;
   title: string;
   album?: string | null;
+  /** Lien d'écoute (page multi-plateformes AudD), si disponible. */
+  link?: string | null;
 }
 
 /** Tranche horodatée de la transcription audio. */
@@ -96,6 +100,8 @@ export interface ProcessOptions {
   videoUrl?: string;
   prompt?: string | null;
   lang?: string;
+  /** Signal d'annulation : interrompt l'appel à dyper-ai si le client se déconnecte. */
+  signal?: AbortSignal;
 }
 
 /** Contexte d'analyse fourni à /api/chat pour répondre à une question de suivi. */
@@ -104,7 +110,6 @@ export interface ChatContext {
   visualization: Visualization;
   model: string;
   lang?: string;
-  processingTime?: number;
   requestId?: string;
   /** Chronologie d'apparition des objets (vidéos) — enrichit le prompt système. */
   timeline?: TimelineEntry[] | null;
@@ -112,6 +117,13 @@ export interface ChatContext {
   audioTranscript?: string | null;
   /** Bandes-son identifiées (vidéos) — enrichit le prompt système. */
   music?: MusicInfo[] | null;
+  /** Détections par frame (vidéos) : positions des objets dans le temps (résumé par piste). */
+  frameDetections?: FrameDetections[] | null;
+  /** Transcription horodatée (vidéos) : situe les propos dans le temps. */
+  transcriptSegments?: TranscriptSegment[] | null;
+  /** Dimensions de la source : rendent les positions interprétables (zones relatives). */
+  sourceWidth?: number | null;
+  sourceHeight?: number | null;
 }
 
 // ─── Préférences utilisateur (colonne JSON `settings` du modèle User) ──────────
@@ -146,6 +158,105 @@ export interface AuthUser {
   email: string;
 }
 
+// ─── Abonnements (forfaits factices, quotas appliqués côté passerelle) ─────────
+
+/** Identifiant de forfait d'abonnement. */
+export type PlanId = 'free' | 'pro' | 'studio';
+
+/**
+ * Quotas et privilèges d'un forfait. Tous les forfaits offrent la MÊME qualité d'analyse et la
+ * même puissance de calcul : seuls diffèrent les volumes mensuels, les tailles de fichier et la
+ * priorité dans la file d'attente (allocation de capacité, cf. capacity.service).
+ */
+export interface PlanLimits {
+  /** Analyses par mois (-1 = illimité). */
+  monthlyAnalyses: number;
+  /** Minutes de vidéo analysées par mois (-1 = illimité). */
+  monthlyVideoMinutes: number;
+  /** Taille maximale d'une image (Mo). */
+  maxImageMb: number;
+  /** Taille maximale d'une vidéo (Mo). */
+  maxVideoMb: number;
+  /** Priorité dans la file d'attente (plus élevé = servi avant). */
+  queuePriority: number;
+}
+
+/** Vue du forfait courant exposée au client. */
+export interface PlanView {
+  plan: PlanId;
+  limits: PlanLimits;
+}
+
+/** Consommation courante d'un utilisateur sur la période mensuelle. */
+export interface UsageView {
+  plan: PlanId;
+  limits: PlanLimits;
+  usage: {
+    analyses: number;
+    videoMinutes: number;
+  };
+  /** Début de la période de quota (ISO) — null si aucune analyse encore. */
+  periodStart: string | null;
+  /** Date de remise à zéro des quotas (ISO). */
+  resetsAt: string;
+}
+
+// ─── API publique : clés et abonnement développeur (distinct du forfait du site) ──
+
+/** Forfait de l'API publique (indépendant du forfait du site web). */
+export type ApiPlanId = 'free' | 'starter' | 'business' | 'unlimited';
+
+/** Quotas d'un forfait API. La qualité d'analyse est identique : seuls diffèrent les volumes,
+ * tailles de fichier, débit et priorité de file. */
+export interface ApiPlanLimits {
+  /** Requêtes d'analyse par mois (-1 = illimité). */
+  monthlyRequests: number;
+  maxImageMb: number;
+  maxVideoMb: number;
+  /** Débit indicatif (requêtes/minute) annoncé dans la documentation. */
+  rateLimitPerMin: number;
+  /** Priorité dans la file de calcul (plus élevé = servi avant). */
+  queuePriority: number;
+}
+
+/** Forfait API courant et ses quotas. */
+export interface ApiPlanView {
+  plan: ApiPlanId;
+  limits: ApiPlanLimits;
+}
+
+/** Consommation API courante (période mensuelle). */
+export interface ApiUsageView {
+  plan: ApiPlanId;
+  limits: ApiPlanLimits;
+  usage: { requests: number };
+  /** Solde de tokens achetés (crédits de dépassement, ne expirent pas). */
+  tokenBalance: number;
+  periodStart: string | null;
+  resetsAt: string;
+}
+
+/** Pack de tokens API achetable (crédits de dépassement au-delà du quota mensuel). */
+export interface ApiTokenPack {
+  id: string;
+  tokens: number;
+}
+
+/** Vue publique d'une clé API (jamais le secret en clair). */
+export interface ApiKeyView {
+  id: string;
+  name: string;
+  /** Préfixe affichable pour identifier la clé (ex. « dyk_live_a1b2c3… »). */
+  prefix: string;
+  lastUsedAt: string | null;
+  createdAt: string;
+}
+
+/** Réponse de création d'une clé : la vue + le secret en clair, montré UNE SEULE fois. */
+export interface ApiKeyCreated extends ApiKeyView {
+  secret: string;
+}
+
 // ─── Conversations ─────────────────────────────────────────────────────────────
 
 /** Rôle d'un message de conversation. */
@@ -153,6 +264,9 @@ export type MessageRole = 'user' | 'assistant';
 
 /** Nature d'un message : texte libre ou carte d'analyse. */
 export type MessageKind = 'text' | 'analysis';
+
+/** Cycle de vie d'une carte d'analyse (les messages texte sont toujours « ready »). */
+export type MessageStatus = 'pending' | 'ready' | 'error';
 
 /** Analyse inlinée dans un message assistant (vue construite pour le client). */
 export interface InlineAnalysis {
@@ -186,6 +300,8 @@ export interface MessageView {
   kind: MessageKind;
   content: string;
   attachmentName: string | null;
+  /** Statut du message : « pending » pour une analyse en cours (tâche de fond). */
+  status: MessageStatus;
   seq: number;
   createdAt: Date;
   analysis: InlineAnalysis | null;

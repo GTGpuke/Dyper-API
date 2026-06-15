@@ -87,3 +87,33 @@ class TestObjectTracker:
         tracker.update([], img)  # Une frame manquée.
         id_back = tracker.update([_obj("car", 52, 50)], img)[0].trackId
         assert id_back == id0
+
+    def test_reset_coupe_la_persistance_sans_reutiliser_les_ids(self):
+        """Vérifie qu'après reset() (coupure de plan), un objet repart avec un NOUVEL identifiant."""
+        tracker = ObjectTracker()
+        img = _img()
+        id0 = tracker.update([_obj("car", 50, 50)], img)[0].trackId
+        tracker.reset()
+        id1 = tracker.update([_obj("car", 50, 50)], img)[0].trackId
+        assert id1 != id0
+
+
+@pytest.mark.unit
+class TestConfusableGroups:
+    """Pénalité de label par groupe : les classes confondues ne cassent pas une piste."""
+
+    def test_confusion_vehicule_conserve_la_piste(self):
+        """Une voiture en mouvement ré-étiquetée « truck » garde son identité (même groupe)."""
+        tracker = ObjectTracker()
+        img = _img()
+        id0 = tracker.update([_obj("car", 10, 90)], img)[0].trackId
+        id1 = tracker.update([_obj("truck", 10, 160)], img)[0].trackId
+        assert id0 == id1
+
+    def test_familles_distinctes_restent_separees(self):
+        """Une personne, à l'endroit qu'occupait un véhicule, ne capture pas sa piste (groupes distincts)."""
+        tracker = ObjectTracker()
+        img = _img()
+        id0 = tracker.update([_obj("car", 10, 90)], img)[0].trackId
+        id1 = tracker.update([_obj("person", 10, 160)], img)[0].trackId
+        assert id0 != id1

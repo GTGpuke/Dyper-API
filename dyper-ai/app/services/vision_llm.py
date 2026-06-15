@@ -230,7 +230,7 @@ async def _complete(content: list[dict[str, Any]], max_tokens: int) -> str | Non
     """Appelle le modèle Groq (texte ou multimodal) et retourne le texte brut. None sur tout échec.
 
     Les erreurs de limite de débit (429) sont réessayées avec le délai suggéré par l'API —
-    indispensable sur le palier gratuit Groq quand les appels se multiplient (chapitres, synthèse).
+    indispensable sur le palier gratuit Groq quand les appels se multiplient (synthèse).
     """
     for attempt in range(_MAX_ATTEMPTS):
         try:

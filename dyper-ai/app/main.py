@@ -1,8 +1,9 @@
 """Point d'entrée principal du service dyper-ai — chargement du modèle YOLO au démarrage."""
 
+import uuid
 from contextlib import asynccontextmanager
 
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
 
 from app.config import settings
 from app.routes import health, moderate, process, thumbnail
@@ -50,6 +51,18 @@ async def lifespan(app: FastAPI):
 
 
 app = FastAPI(title="dyper-ai", version="1.0.0", lifespan=lifespan)
+
+
+@app.middleware("http")
+async def request_id_middleware(request: Request, call_next):
+    """Traçabilité de bout en bout : réutilise l'identifiant X-Request-Id fourni par la passerelle
+    (ou en génère un), puis le renvoie dans la réponse pour corréler les journaux entre services."""
+    request_id = request.headers.get("x-request-id") or str(uuid.uuid4())
+    response = await call_next(request)
+    response.headers["X-Request-Id"] = request_id
+    return response
+
+
 app.include_router(process.router)
 app.include_router(moderate.router)
 app.include_router(thumbnail.router)

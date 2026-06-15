@@ -46,7 +46,7 @@ export const env = {
   AI_SERVICE_URL: required('AI_SERVICE_URL'),
   AI_INTERNAL_KEY: required('AI_INTERNAL_KEY'),
   AI_REQUEST_TIMEOUT_MS: Number.parseInt(optional('AI_REQUEST_TIMEOUT_MS', '30000'), 10),
-  // Timeout dédié au traitement vidéo (long : ~900 frames trackées en 1280px + vision par chapitres).
+  // Timeout dédié au traitement vidéo (long : extraction de frames, suivi des objets, vision multimodale et audio).
   AI_VIDEO_TIMEOUT_MS: Number.parseInt(optional('AI_VIDEO_TIMEOUT_MS', '900000'), 10),
 
   // Upload de fichiers — taille max image, et taille max vidéo (5 min ≫ 10 Mo).
@@ -62,6 +62,14 @@ export const env = {
   // Rate limiting.
   RATE_LIMIT_MAX: Number.parseInt(optional('RATE_LIMIT_MAX', '60'), 10),
   RATE_LIMIT_WINDOW: optional('RATE_LIMIT_WINDOW', '1 minute'),
+
+  // Allocation de capacité : nombre maximal d'analyses traitées simultanément par dyper-ai
+  // (backend unique, pas de multi-instance). Au-delà, les requêtes patientent dans une file
+  // prioritaire (les forfaits payants passent devant) — chaque traitement actif dispose ainsi
+  // d'une part garantie de calcul (GPU non sur-sollicité).
+  MAX_CONCURRENT_ANALYSES: Number.parseInt(optional('MAX_CONCURRENT_ANALYSES', '2'), 10),
+  // Estimation moyenne d'un traitement (s) pour annoncer un temps d'attente en file.
+  AVG_ANALYSIS_SECONDS: Number.parseInt(optional('AVG_ANALYSIS_SECONDS', '40'), 10),
 
   get isDev() {
     return this.NODE_ENV === 'development';

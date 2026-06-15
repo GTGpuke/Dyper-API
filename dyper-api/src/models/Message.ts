@@ -1,6 +1,6 @@
 import { DataTypes, Model, type Optional } from 'sequelize';
 import sequelize from '../services/db/database.service';
-import type { MessageKind, MessageRole } from '../types';
+import type { MessageKind, MessageRole, MessageStatus } from '../types';
 
 // Message d'une conversation : texte libre (user ou assistant) ou carte d'analyse (assistant).
 interface MessageAttributes {
@@ -13,6 +13,9 @@ interface MessageAttributes {
   content: string;
   attachment_name: string | null;
   analysis_request_id: string | null;
+  // Cycle de vie d'une carte d'analyse : 'pending' (en cours, tâche de fond) → 'ready' / 'error'.
+  // Les messages texte sont toujours 'ready'.
+  status: MessageStatus;
   // Ordre fiable dans la conversation (created_at peut entrer en collision à la milliseconde).
   seq: number;
   created_at: Date;
@@ -20,7 +23,7 @@ interface MessageAttributes {
 
 type MessageCreationAttributes = Optional<
   MessageAttributes,
-  'id' | 'content' | 'attachment_name' | 'analysis_request_id' | 'created_at'
+  'id' | 'content' | 'attachment_name' | 'analysis_request_id' | 'status' | 'created_at'
 >;
 
 class Message
@@ -35,6 +38,7 @@ class Message
   declare content: string;
   declare attachment_name: string | null;
   declare analysis_request_id: string | null;
+  declare status: MessageStatus;
   declare seq: number;
   declare created_at: Date;
 }
@@ -49,6 +53,7 @@ Message.init(
     content: { type: DataTypes.TEXT, allowNull: false, defaultValue: '' },
     attachment_name: { type: DataTypes.STRING, allowNull: true, defaultValue: null },
     analysis_request_id: { type: DataTypes.STRING, allowNull: true, defaultValue: null },
+    status: { type: DataTypes.STRING(16), allowNull: false, defaultValue: 'ready' },
     seq: { type: DataTypes.INTEGER, allowNull: false },
     created_at: { type: DataTypes.DATE, allowNull: false, defaultValue: DataTypes.NOW },
   },

@@ -56,12 +56,15 @@ def build_response(
     """
     # Inférence de la scène (label localisé selon la langue) puis compte rendu enrichi
     # (composition spatiale via les dimensions de l'image, couleurs nommées).
-    scene = scene_service.infer_scene(objects, lang)
+    # Compte rendu, scène et tags ne reposent que sur les détections prioritaires ; le vocabulaire
+    # ouvert sous le seuil reste dans la visualisation (drapeau priority) mais demeure secondaire.
+    priority_objects = [obj for obj in objects if obj.priority]
+    scene = scene_service.infer_scene(priority_objects, lang)
     colors = get_dominant_colors(image, n=3)
     description_text = desc_service.generate(
-        objects, scene, prompt, lang, colors=colors, image_size=image.size
+        priority_objects, scene, prompt, lang, colors=colors, image_size=image.size
     )
-    tags = sorted({obj.label for obj in objects})
+    tags = sorted({obj.label for obj in priority_objects})
 
     visualization = Visualization(
         objects=objects,

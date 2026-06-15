@@ -20,7 +20,7 @@ export async function streamChat(
   const base = import.meta.env.VITE_API_URL ?? ''
   let response: Response
   try {
-    response = await fetch(`${base}/api/conversations/${conversationId}/messages/stream`, {
+    response = await fetch(`${base}/api/v1/conversations/${conversationId}/messages/stream`, {
       method: 'POST',
       credentials: 'include',
       headers: {

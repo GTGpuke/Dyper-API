@@ -4,17 +4,27 @@ import type {
   AnalysesQuery,
   AnalysisRecord,
   AnalysisResult,
+  ApiKey,
+  ApiKeyCreated,
+  ApiPlanId,
+  ApiPlanView,
   ApiResponse,
+  ApiTokenPackId,
+  ApiUsageView,
+  CapacityStatus,
   ChatExchangeRecord,
   Conversation,
   ConversationMessage,
   FeedSort,
   HealthStatus,
   Paginated,
+  PlanId,
+  PlanView,
   Publication,
   PublicationComment,
   PublicVote,
   SessionInfo,
+  UsageView,
   User,
   UserSettings,
   VoteResult,
@@ -57,16 +67,16 @@ export async function analyzeFile(file: File, prompt?: string, lang = 'fr'): Pro
   form.append('file', file)
   if (prompt) form.append('prompt', prompt)
   form.append('lang', lang)
-  // L'analyse vidéo à fond (900 frames + chapitres) peut durer plusieurs minutes.
+  // L'analyse vidéo approfondie peut durer plusieurs minutes.
   const timeout = file.type.startsWith('video/') ? 900_000 : undefined
-  const { data } = await client.post<ApiResponse<AnalysisResult>>('/api/analyze', form, { timeout })
+  const { data } = await client.post<ApiResponse<AnalysisResult>>('/api/v1/analyze', form, { timeout })
   return unwrap(data)
 }
 
 /** Résout la miniature d'une vidéo de plateforme via la passerelle (null si indisponible). */
 export async function fetchVideoThumbnail(url: string): Promise<string | null> {
   try {
-    const { data } = await client.post<{ thumbnailUrl: string | null }>('/api/analyze/thumbnail', {
+    const { data } = await client.post<{ thumbnailUrl: string | null }>('/api/v1/analyze/thumbnail', {
       url,
     })
     return data.thumbnailUrl ?? null
@@ -76,7 +86,7 @@ export async function fetchVideoThumbnail(url: string): Promise<string | null> {
 }
 
 export async function analyzeUrl(url: string, prompt?: string, lang = 'fr'): Promise<AnalysisResult> {
-  const { data } = await client.post<ApiResponse<AnalysisResult>>('/api/analyze/url', {
+  const { data } = await client.post<ApiResponse<AnalysisResult>>('/api/v1/analyze/url', {
     url,
     prompt,
     lang,
@@ -85,7 +95,7 @@ export async function analyzeUrl(url: string, prompt?: string, lang = 'fr'): Pro
 }
 
 export async function analyzePrompt(prompt: string, lang = 'fr'): Promise<AnalysisResult> {
-  const { data } = await client.post<ApiResponse<AnalysisResult>>('/api/analyze/prompt', {
+  const { data } = await client.post<ApiResponse<AnalysisResult>>('/api/v1/analyze/prompt', {
     prompt,
     lang,
   })
@@ -97,7 +107,7 @@ export async function chatWithResult(
   context: AnalysisResult,
   lang = 'fr'
 ): Promise<string> {
-  const { data } = await client.post<{ success: boolean; answer: string }>('/api/chat', {
+  const { data } = await client.post<{ success: boolean; answer: string }>('/api/v1/chat', {
     question,
     context,
     lang,
@@ -108,23 +118,23 @@ export async function chatWithResult(
 // ─── Historique (lecture depuis la base SQLite) ──────────────────────────────
 
 export async function getAnalyses(query: AnalysesQuery = {}): Promise<Paginated<AnalysisRecord>> {
-  const { data } = await client.get<Paginated<AnalysisRecord>>('/api/analyses', { params: query })
+  const { data } = await client.get<Paginated<AnalysisRecord>>('/api/v1/analyses', { params: query })
   return data
 }
 
 export async function getAnalysis(id: string): Promise<AnalysisRecord> {
-  const { data } = await client.get<{ data: AnalysisRecord }>(`/api/analyses/${id}`)
+  const { data } = await client.get<{ data: AnalysisRecord }>(`/api/v1/analyses/${id}`)
   return data.data
 }
 
 // Supprime une analyse (et, côté serveur, ses échanges de chat liés et ses médias).
 export async function deleteAnalysis(id: string): Promise<void> {
-  await client.delete(`/api/analyses/${id}`)
+  await client.delete(`/api/v1/analyses/${id}`)
 }
 
 export async function getChatHistory(requestId: string): Promise<ChatExchangeRecord[]> {
   const { data } = await client.get<{ data: ChatExchangeRecord[]; total: number }>(
-    `/api/analyses/${requestId}/chat`
+    `/api/v1/analyses/${requestId}/chat`
   )
   return data.data
 }
@@ -154,7 +164,7 @@ export async function probe(path: string): Promise<{ status: number; body: unkno
 // ─── Authentification ────────────────────────────────────────────────────────
 
 export async function register(email: string, password: string, displayName?: string): Promise<User> {
-  const { data } = await client.post<{ user: User }>('/api/auth/register', {
+  const { data } = await client.post<{ user: User }>('/api/v1/auth/register', {
     email,
     password,
     displayName,
@@ -163,18 +173,18 @@ export async function register(email: string, password: string, displayName?: st
 }
 
 export async function login(email: string, password: string): Promise<User> {
-  const { data } = await client.post<{ user: User }>('/api/auth/login', { email, password })
+  const { data } = await client.post<{ user: User }>('/api/v1/auth/login', { email, password })
   return data.user
 }
 
 export async function logout(): Promise<void> {
-  await client.post('/api/auth/logout')
+  await client.post('/api/v1/auth/logout')
 }
 
-// ─── Compte courant (/api/me) ────────────────────────────────────────────────
+// ─── Compte courant (/api/v1/me) ────────────────────────────────────────────────
 
 export async function getMe(): Promise<{ user: User; settings: UserSettings }> {
-  const { data } = await client.get<{ user: User; settings: UserSettings }>('/api/me')
+  const { data } = await client.get<{ user: User; settings: UserSettings }>('/api/v1/me')
   return { user: data.user, settings: data.settings }
 }
 
@@ -183,136 +193,253 @@ export async function updateProfile(payload: {
   avatarUrl?: string
   bio?: string
 }): Promise<User> {
-  const { data } = await client.patch<{ user: User }>('/api/me/profile', payload)
+  const { data } = await client.patch<{ user: User }>('/api/v1/me/profile', payload)
   return data.user
 }
 
 export async function changePassword(currentPassword: string, newPassword: string): Promise<void> {
-  await client.patch('/api/me/password', { currentPassword, newPassword })
+  await client.patch('/api/v1/me/password', { currentPassword, newPassword })
 }
 
 export async function updateSettings(patch: Partial<UserSettings>): Promise<UserSettings> {
-  const { data } = await client.put<{ settings: UserSettings }>('/api/me/settings', patch)
+  const { data } = await client.put<{ settings: UserSettings }>('/api/v1/me/settings', patch)
   return data.settings
 }
 
 export async function getSessions(): Promise<SessionInfo[]> {
-  const { data } = await client.get<{ sessions: SessionInfo[] }>('/api/me/sessions')
+  const { data } = await client.get<{ sessions: SessionInfo[] }>('/api/v1/me/sessions')
   return data.sessions
 }
 
 export async function revokeAllSessions(): Promise<void> {
-  await client.post('/api/me/sessions/revoke-all')
+  await client.post('/api/v1/me/sessions/revoke-all')
 }
 
 export async function exportData(): Promise<Blob> {
-  const { data } = await client.get('/api/me/export', { responseType: 'blob' })
+  const { data } = await client.get('/api/v1/me/export', { responseType: 'blob' })
   return data as Blob
 }
 
 export async function purgeHistory(type?: string): Promise<number> {
-  const { data } = await client.delete<{ deleted: number }>('/api/me/history', {
+  const { data } = await client.delete<{ deleted: number }>('/api/v1/me/history', {
     data: { type },
   })
   return data.deleted
 }
 
 export async function deleteAccount(password: string): Promise<void> {
-  await client.delete('/api/me/account', { data: { password } })
+  await client.delete('/api/v1/me/account', { data: { password } })
+}
+
+// ─── Abonnement (forfaits factices, quotas appliqués côté API) ────────────────
+
+/** Forfait courant et ses quotas. */
+export async function getPlan(): Promise<PlanView> {
+  const { data } = await client.get<{ success: boolean } & PlanView>('/api/v1/me/plan')
+  return { plan: data.plan, limits: data.limits }
+}
+
+/** Consommation mensuelle courante. */
+export async function getUsage(): Promise<UsageView> {
+  const { data } = await client.get<{ success: boolean } & UsageView>('/api/v1/me/usage')
+  return { plan: data.plan, limits: data.limits, usage: data.usage, periodStart: data.periodStart, resetsAt: data.resetsAt }
+}
+
+/** Charge courante de la passerelle (analyses actives et en file d'attente). */
+export async function getCapacity(): Promise<CapacityStatus> {
+  const { data } = await client.get<{ success: boolean } & CapacityStatus>('/api/v1/me/capacity')
+  return {
+    maxConcurrent: data.maxConcurrent,
+    active: data.active,
+    queued: data.queued,
+    busy: data.busy,
+    avgAnalysisSeconds: data.avgAnalysisSeconds,
+  }
+}
+
+/** Souscrit un forfait (paiement factice). Retourne le forfait appliqué et un reçu fictif. */
+export async function checkout(
+  plan: PlanId
+): Promise<PlanView & { receipt: { id: string; paid: boolean; previousPlan: PlanId } }> {
+  const { data } = await client.post<
+    { success: boolean } & PlanView & { receipt: { id: string; paid: boolean; previousPlan: PlanId } }
+  >('/api/v1/me/checkout', { plan })
+  return { plan: data.plan, limits: data.limits, receipt: data.receipt }
+}
+
+// ─── API publique : forfait développeur + clés ───────────────────────────────
+
+/** Forfait API courant et ses quotas. */
+export async function getApiPlan(): Promise<ApiPlanView> {
+  const { data } = await client.get<{ success: boolean } & ApiPlanView>('/api/v1/me/api-plan')
+  return { plan: data.plan, limits: data.limits }
+}
+
+/** Consommation API mensuelle courante. */
+export async function getApiUsage(): Promise<ApiUsageView> {
+  const { data } = await client.get<{ success: boolean } & ApiUsageView>('/api/v1/me/api-usage')
+  return {
+    plan: data.plan,
+    limits: data.limits,
+    usage: data.usage,
+    tokenBalance: data.tokenBalance,
+    periodStart: data.periodStart,
+    resetsAt: data.resetsAt,
+  }
+}
+
+/** Souscrit un forfait API (paiement factice). */
+export async function apiCheckout(plan: ApiPlanId): Promise<ApiPlanView> {
+  const { data } = await client.post<{ success: boolean } & ApiPlanView>('/api/v1/me/api-checkout', {
+    plan,
+  })
+  return { plan: data.plan, limits: data.limits }
+}
+
+/** Achète un pack de tokens API (crédits de dépassement, paiement factice). Retourne le solde. */
+export async function buyApiTokens(pack: ApiTokenPackId): Promise<number> {
+  const { data } = await client.post<{ success: boolean; tokenBalance: number }>(
+    '/api/v1/me/api-tokens',
+    { pack }
+  )
+  return data.tokenBalance
+}
+
+/** Liste les clés API actives (jamais les secrets). */
+export async function listApiKeys(): Promise<ApiKey[]> {
+  const { data } = await client.get<{ success: boolean; keys: ApiKey[] }>('/api/v1/me/api-keys')
+  return data.keys
+}
+
+/** Crée une clé API. Le secret n'est renvoyé qu'ici, une seule fois. */
+export async function createApiKey(name: string): Promise<ApiKeyCreated> {
+  const { data } = await client.post<{ success: boolean; key: ApiKeyCreated }>(
+    '/api/v1/me/api-keys',
+    { name }
+  )
+  return data.key
+}
+
+/** Révoque une clé API. */
+export async function revokeApiKey(id: string): Promise<void> {
+  await client.delete(`/api/v1/me/api-keys/${id}`)
 }
 
 // ─── Conversations ───────────────────────────────────────────────────────────
 
 export async function listConversations(): Promise<Conversation[]> {
-  const { data } = await client.get<{ data: Conversation[] }>('/api/conversations', {
+  const { data } = await client.get<{ data: Conversation[] }>('/api/v1/conversations', {
     params: { limit: 200 },
   })
   return data.data
 }
 
 export async function createConversation(): Promise<Conversation> {
-  const { data } = await client.post<{ conversation: Conversation }>('/api/conversations', {})
+  const { data } = await client.post<{ conversation: Conversation }>('/api/v1/conversations', {})
   return data.conversation
+}
+
+// Le serveur expose le statut de la carte sous `status` ; on le mappe en `analysisStatus`
+// (le champ `status` côté client est réservé aux états optimistes d'envoi).
+type WireMessage = Omit<ConversationMessage, 'analysisStatus'> & {
+  status?: 'pending' | 'ready' | 'error'
+}
+function mapMessage(m: WireMessage): ConversationMessage {
+  const { status, ...rest } = m
+  return { ...rest, analysisStatus: status ?? 'ready' }
+}
+function mapMessages(messages: WireMessage[]): ConversationMessage[] {
+  return messages.map(mapMessage)
 }
 
 export async function getConversation(
   id: string
 ): Promise<{ conversation: Conversation; messages: ConversationMessage[] }> {
-  const { data } = await client.get<{ conversation: Conversation; messages: ConversationMessage[] }>(
-    `/api/conversations/${id}`
+  const { data } = await client.get<{ conversation: Conversation; messages: WireMessage[] }>(
+    `/api/v1/conversations/${id}`
   )
-  return data
+  return { conversation: data.conversation, messages: mapMessages(data.messages) }
+}
+
+/** Annule l'analyse en cours d'une conversation (bouton Stop → tâche de fond serveur). */
+export async function cancelAnalysis(id: string): Promise<{ cancelled: boolean }> {
+  const { data } = await client.post<{ success: boolean; cancelled: boolean }>(
+    `/api/v1/conversations/${id}/cancel`
+  )
+  return { cancelled: data.cancelled }
 }
 
 export async function renameConversation(id: string, title: string): Promise<Conversation> {
-  const { data } = await client.patch<{ conversation: Conversation }>(`/api/conversations/${id}`, {
+  const { data } = await client.patch<{ conversation: Conversation }>(`/api/v1/conversations/${id}`, {
     title,
   })
   return data.conversation
 }
 
 export async function deleteConversation(id: string): Promise<void> {
-  await client.delete(`/api/conversations/${id}`)
+  await client.delete(`/api/v1/conversations/${id}`)
 }
 
 /** Envoie un message (texte, fichier ou URL) et retourne la paire user/assistant créée. */
 export async function sendConversationMessage(
   id: string,
   input: { text?: string; file?: File; url?: string; lang?: string },
-  onUploadProgress?: (pct: number) => void
+  onUploadProgress?: (pct: number) => void,
+  signal?: AbortSignal
 ): Promise<{ conversation: Conversation; messages: ConversationMessage[] }> {
   if (input.file) {
     const form = new FormData()
     form.append('file', input.file)
     if (input.text) form.append('text', input.text)
     form.append('lang', input.lang ?? 'fr')
-    // L'analyse vidéo à fond (900 frames + chapitres) peut durer plusieurs minutes.
+    // L'analyse vidéo approfondie peut durer plusieurs minutes.
     const timeout = input.file.type.startsWith('video/') ? 900_000 : undefined
     const { data } = await client.post<{
       conversation: Conversation
-      messages: ConversationMessage[]
-    }>(`/api/conversations/${id}/messages`, form, {
+      messages: WireMessage[]
+    }>(`/api/v1/conversations/${id}/messages`, form, {
       timeout,
+      signal,
       onUploadProgress: (event) => {
         if (onUploadProgress && event.total) {
           onUploadProgress(Math.round((event.loaded / event.total) * 100))
         }
       },
     })
-    return data
+    return { conversation: data.conversation, messages: mapMessages(data.messages) }
   }
   // Une URL de plateforme vidéo (YouTube / Twitch) implique téléchargement + analyse complète :
   // timeout étendu comme pour un fichier vidéo.
   const timeout = input.url && isVideoPlatformUrl(input.url) ? 900_000 : undefined
   const { data } = await client.post<{
     conversation: Conversation
-    messages: ConversationMessage[]
+    messages: WireMessage[]
   }>(
-    `/api/conversations/${id}/messages`,
+    `/api/v1/conversations/${id}/messages`,
     {
       text: input.text,
       url: input.url,
       lang: input.lang ?? 'fr',
     },
-    { timeout }
+    { timeout, signal }
   )
-  return data
+  return { conversation: data.conversation, messages: mapMessages(data.messages) }
 }
 
 /** URL d'une miniature d'analyse (servie par cookie — utilisable dans un <img src>). */
 export function mediaUrl(requestId: string): string {
-  return `${import.meta.env.VITE_API_URL ?? ''}/api/media/${requestId}`
+  return `${import.meta.env.VITE_API_URL ?? ''}/api/v1/media/${requestId}`
 }
 
 /** URL de la vidéo originale d'une analyse (streaming Range — utilisable dans un <video src>). */
 export function videoUrl(requestId: string): string {
-  return `${import.meta.env.VITE_API_URL ?? ''}/api/media/${requestId}/video`
+  return `${import.meta.env.VITE_API_URL ?? ''}/api/v1/media/${requestId}/video`
 }
 
 // ─── Feed public « Global » ──────────────────────────────────────────────────
 
 export async function publishAnalysis(analysisId: string, caption?: string): Promise<Publication> {
-  const { data } = await client.post<{ publication: Publication }>('/api/global/publish', {
+  const { data } = await client.post<{ publication: Publication }>('/api/v1/global/publish', {
     analysisId,
     caption,
   })
@@ -320,29 +447,29 @@ export async function publishAnalysis(analysisId: string, caption?: string): Pro
 }
 
 export async function getGlobalFeed(sort: FeedSort, page = 1): Promise<Paginated<Publication>> {
-  const { data } = await client.get<Paginated<Publication>>('/api/global', {
+  const { data } = await client.get<Paginated<Publication>>('/api/v1/global', {
     params: { sort, page },
   })
   return data
 }
 
 export async function getPublication(id: string): Promise<Publication> {
-  const { data } = await client.get<{ publication: Publication }>(`/api/global/publications/${id}`)
+  const { data } = await client.get<{ publication: Publication }>(`/api/v1/global/publications/${id}`)
   return data.publication
 }
 
 export async function votePublication(id: string, value: PublicVote): Promise<VoteResult> {
-  const { data } = await client.post<VoteResult>(`/api/global/publications/${id}/vote`, { value })
+  const { data } = await client.post<VoteResult>(`/api/v1/global/publications/${id}/vote`, { value })
   return data
 }
 
 export async function deletePublication(id: string): Promise<void> {
-  await client.delete(`/api/global/publications/${id}`)
+  await client.delete(`/api/v1/global/publications/${id}`)
 }
 
 export async function getPublicationComments(id: string): Promise<PublicationComment[]> {
   const { data } = await client.get<{ data: PublicationComment[] }>(
-    `/api/global/publications/${id}/comments`
+    `/api/v1/global/publications/${id}/comments`
   )
   return data.data
 }
@@ -353,22 +480,22 @@ export async function postComment(
   parentId?: string
 ): Promise<PublicationComment> {
   const { data } = await client.post<{ comment: PublicationComment }>(
-    `/api/global/publications/${id}/comments`,
+    `/api/v1/global/publications/${id}/comments`,
     { body, parentId }
   )
   return data.comment
 }
 
 export async function deleteComment(commentId: string): Promise<void> {
-  await client.delete(`/api/global/comments/${commentId}`)
+  await client.delete(`/api/v1/global/comments/${commentId}`)
 }
 
 export async function reportPublication(id: string, reason: string): Promise<void> {
-  await client.post(`/api/global/publications/${id}/report`, { reason })
+  await client.post(`/api/v1/global/publications/${id}/report`, { reason })
 }
 
 export async function reportComment(commentId: string, reason: string): Promise<void> {
-  await client.post(`/api/global/comments/${commentId}/report`, { reason })
+  await client.post(`/api/v1/global/comments/${commentId}/report`, { reason })
 }
 
 // ─── Pages publiques (sans connexion) ────────────────────────────────────────
@@ -377,17 +504,17 @@ export async function getPublicPublication(
   slug: string
 ): Promise<{ publication: Publication; comments: PublicationComment[] }> {
   const { data } = await client.get<{ publication: Publication; comments: PublicationComment[] }>(
-    `/api/public/publications/${slug}`
+    `/api/v1/public/publications/${slug}`
   )
   return data
 }
 
 /** URL publique d'une miniature de publication (utilisable dans un <img src>, sans session). */
 export function publicMediaUrl(slug: string): string {
-  return `${import.meta.env.VITE_API_URL ?? ''}/api/public/media/${slug}`
+  return `${import.meta.env.VITE_API_URL ?? ''}/api/v1/public/media/${slug}`
 }
 
 /** URL publique de la vidéo d'une publication (streaming Range, sans session). */
 export function publicVideoUrl(slug: string): string {
-  return `${import.meta.env.VITE_API_URL ?? ''}/api/public/media/${slug}/video`
+  return `${import.meta.env.VITE_API_URL ?? ''}/api/v1/public/media/${slug}/video`
 }

@@ -1,10 +1,13 @@
-"""Vocabulaire ouvert le plus large possible (LVIS, ~1200 classes) pour YOLO-World.
+"""Vocabulaire ouvert transmis à YOLO-World : éléments décrits par la vision (+ base LVIS optionnelle).
 
-YOLO-World ne détecte que les classes qu'on lui transmet via `set_classes(...)`. Pour ne rien
-laisser passer, ce vocabulaire de base reprend l'intégralité des catégories LVIS (le banc d'essai
-de référence de YOLO-World) ; à la volée, on y ajoute, en tête, les éléments réellement listés
-par le modèle vision (contextuels, prioritaires). COCO couvre en parallèle ses 80 classes avec une
-meilleure précision : la fusion combine les deux (cf. app/services/fusion.py).
+YOLO-World ne détecte que les classes qu'on lui transmet via `set_classes(...)`. Par défaut, on
+« décrit puis ancre » : le vocabulaire se limite aux éléments réellement listés par le modèle vision
+(donc présents dans l'image), de sorte que World ne peut pas halluciner une classe obscure absente
+de la scène (un cou vu comme « necklace », un mur comme « birdbath »…). La base LVIS ci-dessous
+(~1200 classes, le banc d'essai de référence de YOLO-World) n'est ajoutée que si
+`OPEN_VOCAB_INCLUDE_BASE` est vrai (couverture maximale, au prix de ces faux positifs). COCO couvre
+en parallèle ses 80 classes avec une meilleure précision : la fusion combine les deux
+(cf. app/services/fusion.py).
 
 Liste dérivée de « ultralytics/cfg/datasets/lvis.yaml » (synonyme principal de chaque catégorie).
 """
@@ -1214,17 +1217,44 @@ OPEN_VOCAB_CLASSES: list[str] = [
 ]
 
 
-def build_vocabulary(extra: list[str]) -> list[str]:
+# Termes de « décor » non localisables comme objets (surfaces, fonds) : la vision les liste
+# parfois (« floor », « wall »…) mais YOLO-World poserait alors une boîte aberrante dessus.
+_NON_OBJECT_TERMS: frozenset[str] = frozenset(
+    {
+        "floor",
+        "flooring",
+        "wall",
+        "ceiling",
+        "sky",
+        "ground",
+        "background",
+        "foreground",
+        "backdrop",
+        "horizon",
+        "scene",
+        "room",
+        "surface",
+        "wallpaper",
+        "shadow",
+    }
+)
+
+
+def build_vocabulary(extra: list[str], include_base: bool = False) -> list[str]:
     """Construit le vocabulaire transmis à YOLO-World.
 
-    Place d'abord les éléments contextuels (listés par la vision, donc réellement présents),
-    puis la base étendue ; déduplique (insensible à la casse) et plafonne à `OPEN_VOCAB_MAX`.
+    Place d'abord les éléments contextuels (listés par la vision, donc réellement présents). La base
+    LVIS (~1200 classes) n'est ajoutée qu'à la suite, et seulement si `include_base` est vrai : par
+    défaut (et toujours pour les images, sans filtre temporel), World reste « ancré » sur ce que la
+    vision a décrit, ce qui évite les hallucinations de classes obscures. Écarte les termes de décor
+    non localisables, déduplique (insensible à la casse) et plafonne à `OPEN_VOCAB_MAX`.
     """
+    base = OPEN_VOCAB_CLASSES if include_base else []
     seen: set[str] = set()
     out: list[str] = []
-    for term in [*extra, *OPEN_VOCAB_CLASSES]:
+    for term in [*extra, *base]:
         norm = term.strip().lower()
-        if norm and norm not in seen:
+        if norm and norm not in seen and norm not in _NON_OBJECT_TERMS:
             seen.add(norm)
             out.append(norm)
     return out[: settings.OPEN_VOCAB_MAX]

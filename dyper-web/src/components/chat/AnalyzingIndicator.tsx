@@ -13,12 +13,24 @@ export interface AnalyzingPreview {
   name: string | null
   /** Durée de la vidéo (s) si connue — calibre l'estimation de progression. */
   durationS: number | null
+  /** Première image de la vidéo, servie d'affiche le temps que la lecture démarre. */
+  thumbnailUrl?: string | null
 }
 
 interface Props {
   preview: AnalyzingPreview | null
   /** Progression réelle du téléversement (0–100), null si pas de fichier. */
   uploadPct: number | null
+  /**
+   * Instant de départ de l'analyse (epoch ms), connu côté serveur. Fourni au reload / retour sur la
+   * conversation pour que la barre et l'ETA restent calés sur la durée réelle (et non sur le montage
+   * du composant). Null pour un envoi frais (l'horloge démarre alors à la fin du téléversement).
+   */
+  startedAt?: number | null
+  /** Interrompt l'analyse en cours (bouton Stop). Masqué si absent. */
+  onCancel?: () => void
+  /** Service saturé : une file d'attente de calcul est active (allocation de capacité). */
+  busy?: boolean
 }
 
 // Part de la barre réservée au téléversement réel ; le reste suit l'estimation.
@@ -47,6 +59,10 @@ const STEPS_VIDEO = [
   'analyzing.step.report',
 ]
 
+// Messages de réassurance en rotation (image et vidéo) : prévention des délais + excuses si le
+// service est chargé. En vidéo, l'avertissement de durée s'y ajoute.
+const NOTICES_COMMON = ['analyzing.notice.scan', 'analyzing.notice.busy', 'analyzing.notice.quality']
+
 // Estimation de la durée de traitement (secondes) selon le média.
 function estimateProcessing(preview: AnalyzingPreview | null): number {
   if (!preview?.isVideo) return 8
@@ -55,21 +71,25 @@ function estimateProcessing(preview: AnalyzingPreview | null): number {
   return 150
 }
 
-export function AnalyzingIndicator({ preview, uploadPct }: Props) {
+export function AnalyzingIndicator({ preview, uploadPct, startedAt, onCancel, busy }: Props) {
   const { t } = useI18n()
   const [elapsed, setElapsed] = useState(0)
   const startRef = useRef<number | null>(null)
-  const uploadDone = uploadPct === null || uploadPct >= 100
+  // Au reload / retour sur la conversation, l'analyse a déjà démarré côté serveur (pas de
+  // téléversement à attendre) : on considère le transfert terminé.
+  const uploadDone = startedAt != null || uploadPct === null || uploadPct >= 100
 
-  // Horloge du temps écoulé (démarre à la fin du téléversement pour l'estimation).
+  // Horloge du temps écoulé : calée sur l'instant serveur quand il est connu (stable d'un montage
+  // à l'autre — reload, changement de conversation), sinon démarrée à la fin du téléversement.
   useEffect(() => {
-    if (!uploadDone) return
-    startRef.current = startRef.current ?? Date.now()
-    const timer = setInterval(() => {
-      setElapsed((Date.now() - (startRef.current ?? Date.now())) / 1000)
-    }, 500)
+    if (startedAt == null && !uploadDone) return
+    const base = startedAt ?? (startRef.current ?? Date.now())
+    if (startedAt == null) startRef.current = base
+    const tick = (): void => setElapsed(Math.max(0, (Date.now() - base) / 1000))
+    tick()
+    const timer = setInterval(tick, 500)
     return () => clearInterval(timer)
-  }, [uploadDone])
+  }, [uploadDone, startedAt])
 
   const estimate = estimateProcessing(preview)
   const pct = uploadDone
@@ -87,6 +107,12 @@ export function AnalyzingIndicator({ preview, uploadPct }: Props) {
   const fraction = Math.max(0, pct - UPLOAD_SHARE) / (95 - UPLOAD_SHARE)
   const activeStep = uploadDone ? Math.min(steps.length - 1, Math.floor(fraction * steps.length)) : -1
 
+  // Temps estimé restant (décompte doux) + message de réassurance en rotation (~5 s).
+  const remaining = Math.max(0, estimate - elapsed)
+  const notices = preview?.isVideo ? [...NOTICES_COMMON, 'analyzing.longNotice'] : NOTICES_COMMON
+  // En cas de file d'attente de calcul (service saturé), le message de saturation prime.
+  const noticeKey = busy ? 'analyzing.queueBusy' : notices[Math.floor(elapsed / 5) % notices.length]
+
   return (
     <motion.div
       initial={{ opacity: 0, y: 8 }}
@@ -95,11 +121,12 @@ export function AnalyzingIndicator({ preview, uploadPct }: Props) {
     >
       <div className="flex items-center gap-4">
         {/* Aperçu réel du média, balayé par le réticule de scan. */}
-        <div className="relative h-24 w-36 shrink-0 overflow-hidden rounded-xl bg-ink-900 ring-1 ring-violet-500/30">
+        <div className="relative h-24 w-36 shrink-0 overflow-hidden rounded-xl bg-ink-950 ring-1 ring-violet-500/30">
           {preview?.url ? (
             preview.isVideo ? (
               <video
                 src={preview.url}
+                poster={preview.thumbnailUrl ?? undefined}
                 muted
                 loop
                 autoPlay
@@ -179,6 +206,21 @@ export function AnalyzingIndicator({ preview, uploadPct }: Props) {
             </span>
           </div>
         </div>
+
+        {/* Bouton Stop : interrompt l'analyse et libère le moteur côté serveur. */}
+        {onCancel && (
+          <button
+            type="button"
+            onClick={onCancel}
+            aria-label={t('analyzing.stop')}
+            title={t('analyzing.stop')}
+            className="grid h-8 w-8 shrink-0 place-items-center rounded-lg text-ink-400 transition-colors hover:bg-rose-500/10 hover:text-rose-500 dark:text-ink-500"
+          >
+            <svg className="h-4 w-4" viewBox="0 0 24 24" fill="currentColor">
+              <rect x="6" y="6" width="12" height="12" rx="2" />
+            </svg>
+          </button>
+        )}
       </div>
 
       {/* Frise du pipeline : étapes réelles qui s'allument. */}
@@ -231,11 +273,29 @@ export function AnalyzingIndicator({ preview, uploadPct }: Props) {
         })}
       </ol>
 
-      {/* Avertissement de durée : l'analyse approfondie d'une vidéo est longue, c'est normal. */}
-      {preview?.isVideo && (
-        <p className="text-xs leading-relaxed text-ink-400 dark:text-ink-500">
-          ⏳ {t('analyzing.longNotice')}
-        </p>
+      {/* Réassurance en rotation + temps estimé restant (image et vidéo). */}
+      {uploadDone && (
+        <div className="flex items-center justify-between gap-3 text-xs text-ink-400 dark:text-ink-500">
+          <div className="h-4 min-w-0 flex-1 overflow-hidden">
+            <AnimatePresence mode="wait">
+              <motion.p
+                key={noticeKey}
+                initial={{ opacity: 0, y: 6 }}
+                animate={{ opacity: 1, y: 0 }}
+                exit={{ opacity: 0, y: -6 }}
+                transition={{ duration: 0.25 }}
+                className="truncate"
+              >
+                ⏳ {t(noticeKey)}
+              </motion.p>
+            </AnimatePresence>
+          </div>
+          <span className="shrink-0 font-mono tabular-nums">
+            {remaining > 1
+              ? t('analyzing.eta', { time: formatTimecode(remaining) })
+              : t('analyzing.almostDone')}
+          </span>
+        </div>
       )}
     </motion.div>
   )

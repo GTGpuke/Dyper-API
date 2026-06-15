@@ -40,7 +40,7 @@ function useDocsNav(): NavGroup[] {
       },
       {
         label: t('docs.group.guides'),
-        entries: [guide('video'), guide('platform-links'), guide('chat')],
+        entries: [guide('video'), guide('platform-links'), guide('chat'), guide('api-access')],
       },
       {
         label: t('docs.group.reference'),
@@ -48,6 +48,10 @@ function useDocsNav(): NavGroup[] {
           path: `/api-docs/reference/${s.id}`,
           label: t(s.titleKey),
         })),
+      },
+      {
+        label: t('docs.group.resources'),
+        entries: [{ path: '/api-docs/whitepaper', label: t('docs.nav.whitepaper') }],
       },
     ]
   }, [t, lang])
@@ -191,36 +195,55 @@ export function DocsLayout() {
         {/* Navigation latérale (fixe en desktop, panneau en mobile). */}
         <nav
           className={cn(
-            'w-64 shrink-0 overflow-y-auto border-r border-ink-200 bg-ink-50 px-4 py-6 dark:border-ink-800 dark:bg-ink-950 lg:block',
-            navOpen ? 'absolute bottom-0 left-0 top-14 z-30 block shadow-card-hover' : 'hidden'
+            'flex w-64 shrink-0 flex-col border-r border-ink-200 bg-ink-50 px-4 py-6 dark:border-ink-800 dark:bg-ink-950 lg:flex',
+            navOpen ? 'absolute bottom-0 left-0 top-14 z-30 flex shadow-card-hover' : 'hidden'
           )}
         >
-          {groups.map((group) => (
-            <div key={group.label} className="mb-5">
-              <p className="eyebrow mb-2 px-2.5">{group.label}</p>
-              <ul className="flex flex-col gap-0.5">
-                {group.entries.map((entry) => (
-                  <li key={entry.path}>
-                    <NavLink
-                      to={entry.path}
-                      end={entry.path === '/api-docs'}
-                      onClick={() => setNavOpen(false)}
-                      className={({ isActive }) =>
-                        cn(
-                          'block rounded-lg px-2.5 py-1.5 text-sm transition-colors',
-                          isActive
-                            ? 'bg-brand-500/10 font-medium text-brand-700 dark:text-brand-300'
-                            : 'text-ink-600 hover:bg-ink-100 dark:text-ink-300 dark:hover:bg-ink-800'
-                        )
-                      }
-                    >
-                      {entry.label}
-                    </NavLink>
-                  </li>
-                ))}
-              </ul>
-            </div>
-          ))}
+          <div className="min-h-0 flex-1 overflow-y-auto">
+            {groups.map((group) => (
+              <div key={group.label} className="mb-5">
+                <p className="eyebrow mb-2 px-2.5">{group.label}</p>
+                <ul className="flex flex-col gap-0.5">
+                  {group.entries.map((entry) => (
+                    <li key={entry.path}>
+                      <NavLink
+                        to={entry.path}
+                        end={entry.path === '/api-docs'}
+                        onClick={() => setNavOpen(false)}
+                        className={({ isActive }) =>
+                          cn(
+                            'block rounded-lg px-2.5 py-1.5 text-sm transition-colors',
+                            isActive
+                              ? 'bg-brand-500/10 font-medium text-brand-700 dark:text-brand-300'
+                              : 'text-ink-600 hover:bg-ink-100 dark:text-ink-300 dark:hover:bg-ink-800'
+                          )
+                        }
+                      >
+                        {entry.label}
+                      </NavLink>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            ))}
+          </div>
+
+          {/* Encart en évidence, épinglé en bas du menu : seul point d'entrée de la console développeur. */}
+          <NavLink
+            to="/api-docs/developers"
+            onClick={() => setNavOpen(false)}
+            className={({ isActive }) =>
+              cn(
+                'mt-3 flex shrink-0 items-center justify-center gap-1.5 rounded-xl bg-gradient-to-r from-blue-500 to-violet-600 px-3 py-2.5 text-sm font-semibold text-white shadow-card transition-all hover:shadow-card-hover hover:brightness-110',
+                isActive && 'ring-2 ring-violet-400/60'
+              )
+            }
+          >
+            <svg className="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
+              <path d="M8 9l-4 3 4 3M16 9l4 3-4 3M13.5 6l-3 12" />
+            </svg>
+            {t('docs.nav.developers')}
+          </NavLink>
         </nav>
 
         {/* Contenu + fil précédent/suivant. */}
@@ -228,7 +251,8 @@ export function DocsLayout() {
           <div className="mx-auto w-full max-w-6xl px-4 py-10 sm:px-8">
             <Outlet />
 
-            {currentIndex >= 0 && (prev || next) && (
+            {/* La console développeur est une page autonome importante : pas de fil précédent/suivant. */}
+            {location.pathname !== '/api-docs/developers' && currentIndex >= 0 && (prev || next) && (
               <div className="mt-12 flex gap-3 border-t border-ink-100 pt-6 dark:border-ink-800">
                 {prev && (
                   <Link

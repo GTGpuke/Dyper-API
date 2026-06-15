@@ -1,22 +1,25 @@
 // Page Détail : enregistrement complet d'une analyse (lecteur vidéo annoté inclus) +
 // historique de chat persisté.
-import { useRef, useState, type ReactNode } from 'react'
+import { useMemo, useState, type ReactNode } from 'react'
 import { Link, useParams } from 'react-router-dom'
 import { PublishDialog } from '../components/global/PublishDialog'
 import { PageContainer } from '../components/layout/PageContainer'
 import { PageHeader } from '../components/layout/PageHeader'
-import { MusicBadge } from '../components/result/MusicBadge'
+import { BoundingBoxOverlay } from '../components/result/BoundingBoxOverlay'
+import { MusicList } from '../components/result/MusicList'
+import { ObjectList } from '../components/result/ObjectList'
+import { TranscriptKaraoke } from '../components/result/TranscriptKaraoke'
 import { SceneBadge } from '../components/result/SceneBadge'
 import { ColorPalette } from '../components/result/ColorPalette'
 import { TagCloud } from '../components/result/TagCloud'
 import { VideoPlayer } from '../components/result/VideoPlayer'
-import { VideoTimeline } from '../components/result/VideoTimeline'
 import { mediaUrl, videoUrl } from '../services/api'
 import { Badge } from '../components/ui/Badge'
 import { Button } from '../components/ui/Button'
 import { Skeleton } from '../components/ui/Skeleton'
 import { ErrorBanner } from '../components/ui/ErrorBanner'
 import { useAnalysis } from '../hooks/useAnalysis'
+import { useAnnotatedVideo } from '../hooks/useAnnotatedVideo'
 import { useI18n } from '../contexts/I18nContext'
 import { formatDateTime, formatProcessingTime } from '../utils/formatters'
 
@@ -33,9 +36,19 @@ export function DetailPage() {
   const { id } = useParams<{ id: string }>()
   const { t, lang } = useI18n()
   const { analysis, chat, loading, error } = useAnalysis(id)
-  const seekRef = useRef<((time: number) => void) | null>(null)
+  const priorityLabels = useMemo(
+    () => new Set((analysis?.objects ?? []).filter((o) => o.priority !== false).map((o) => o.label)),
+    [analysis?.objects]
+  )
+  const av = useAnnotatedVideo(priorityLabels)
   const [publishing, setPublishing] = useState(false)
   const hasPlayer = Boolean(analysis?.video_path)
+  // Image annotée : mêmes boîtes interactives + filtre que dans le fil (parité avec la vidéo).
+  const showImageBoxes =
+    analysis?.type === 'image' &&
+    analysis.source_width !== null &&
+    analysis.source_height !== null &&
+    Boolean(analysis.thumbnail_path)
 
   return (
     <PageContainer>
@@ -88,7 +101,16 @@ export function DetailPage() {
                     frames={analysis.frame_detections ?? []}
                     sourceWidth={analysis.source_width}
                     sourceHeight={analysis.source_height}
-                    seekRef={seekRef}
+                    {...av.player}
+                  />
+                ) : showImageBoxes ? (
+                  <BoundingBoxOverlay
+                    src={mediaUrl(analysis.request_id)}
+                    objects={analysis.objects ?? []}
+                    sourceDims={{
+                      w: analysis.source_width as number,
+                      h: analysis.source_height as number,
+                    }}
                   />
                 ) : (
                   analysis.thumbnail_path && (
@@ -107,31 +129,6 @@ export function DetailPage() {
                   <p className="text-[15px] leading-relaxed text-ink-700 dark:text-ink-200">{analysis.description}</p>
                 </Section>
 
-                {analysis.music && analysis.music.length > 0 && (
-                  <Section title={t('music.title')}>
-                    <div>
-                      <MusicBadge music={analysis.music} />
-                    </div>
-                  </Section>
-                )}
-
-                {analysis.timeline && analysis.timeline.length > 0 && (
-                  <Section title={t('timeline.title')}>
-                    <VideoTimeline
-                      timeline={analysis.timeline}
-                      onSeek={hasPlayer ? (time) => seekRef.current?.(time) : undefined}
-                    />
-                  </Section>
-                )}
-
-                {analysis.audio_transcript && (
-                  <Section title={t('transcript.title')}>
-                    <blockquote className="rounded-xl border-l-2 border-brand-400 bg-ink-50 px-3.5 py-2.5 text-sm italic leading-relaxed text-ink-600 dark:bg-ink-800/60 dark:text-ink-300">
-                      {analysis.audio_transcript}
-                    </blockquote>
-                  </Section>
-                )}
-
                 <Section title={t('result.scene')}>
                   <SceneBadge
                     label={analysis.scene_label}
@@ -139,6 +136,34 @@ export function DetailPage() {
                     indoor={analysis.indoor}
                   />
                 </Section>
+
+                {analysis.objects && analysis.objects.length > 0 && (
+                  <Section title={`${t('result.objects')} (${analysis.objects.length})`}>
+                    <ObjectList
+                      objects={analysis.objects}
+                      timeline={analysis.timeline}
+                      onSeek={hasPlayer ? av.seek : undefined}
+                      {...av.timeline}
+                    />
+                  </Section>
+                )}
+
+                {analysis.audio_transcript && (
+                  <Section title={t('transcript.title')}>
+                    <TranscriptKaraoke
+                      text={analysis.audio_transcript}
+                      segments={analysis.transcript_segments}
+                      timeRef={hasPlayer ? av.timeline.timeRef : undefined}
+                      playing={av.timeline.playing}
+                    />
+                  </Section>
+                )}
+
+                {analysis.music && analysis.music.length > 0 && (
+                  <Section title={t('music.title')}>
+                    <MusicList music={analysis.music} />
+                  </Section>
+                )}
 
                 {analysis.colors.length > 0 && (
                   <Section title={t('result.colors')}>

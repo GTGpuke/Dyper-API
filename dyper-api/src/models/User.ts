@@ -1,9 +1,11 @@
 import { DataTypes, Model, type Optional } from 'sequelize';
 import sequelize from '../services/db/database.service';
-import { DEFAULT_USER_SETTINGS, type UserSettings } from '../types';
+import { type ApiPlanId, DEFAULT_USER_SETTINGS, type PlanId, type UserSettings } from '../types';
 
 // Compte utilisateur. Les préférences sont stockées dans une unique colonne JSON `settings`
 // (cohérent avec l'usage de DataTypes.JSON ailleurs, et sans friction de migration).
+// L'abonnement (plan) et les compteurs d'usage mensuels vivent en colonnes dédiées : ils sont
+// lus et incrémentés à chaque analyse pour faire respecter les quotas côté passerelle.
 interface UserAttributes {
   id: string;
   email: string;
@@ -13,12 +15,42 @@ interface UserAttributes {
   bio: string | null;
   token_version: number;
   settings: UserSettings;
+  /** Forfait d'abonnement courant (facturation factice). Détermine les quotas et la priorité. */
+  plan: PlanId;
+  /** Nombre d'analyses consommées sur la période mensuelle en cours. */
+  usage_count: number;
+  /** Secondes de vidéo analysées sur la période mensuelle en cours. */
+  usage_video_seconds: number;
+  /** Début de la période de quota courante ; sert au remise à zéro mensuelle. */
+  usage_period_start: Date | null;
+  /** Forfait de l'API publique (distinct du forfait du site). */
+  api_plan: ApiPlanId;
+  /** Requêtes API consommées sur la période mensuelle en cours. */
+  api_usage_count: number;
+  /** Début de la période de quota API courante. */
+  api_usage_period_start: Date | null;
+  /** Solde de tokens API achetés (crédits de dépassement, sans expiration). */
+  api_token_balance: number;
   created_at: Date;
 }
 
 type UserCreationAttributes = Optional<
   UserAttributes,
-  'id' | 'display_name' | 'avatar_url' | 'bio' | 'token_version' | 'settings' | 'created_at'
+  | 'id'
+  | 'display_name'
+  | 'avatar_url'
+  | 'bio'
+  | 'token_version'
+  | 'settings'
+  | 'plan'
+  | 'usage_count'
+  | 'usage_video_seconds'
+  | 'usage_period_start'
+  | 'api_plan'
+  | 'api_usage_count'
+  | 'api_usage_period_start'
+  | 'api_token_balance'
+  | 'created_at'
 >;
 
 class User extends Model<UserAttributes, UserCreationAttributes> implements UserAttributes {
@@ -30,15 +62,26 @@ class User extends Model<UserAttributes, UserCreationAttributes> implements User
   declare bio: string | null;
   declare token_version: number;
   declare settings: UserSettings;
+  declare plan: PlanId;
+  declare usage_count: number;
+  declare usage_video_seconds: number;
+  declare usage_period_start: Date | null;
+  declare api_plan: ApiPlanId;
+  declare api_usage_count: number;
+  declare api_usage_period_start: Date | null;
+  declare api_token_balance: number;
   declare created_at: Date;
 
-  // Représentation publique : ne fuite jamais le hash du mot de passe.
+  // Représentation publique : ne fuite jamais le hash du mot de passe. Le forfait est inclus :
+  // l'interface l'utilise pour adapter quotas affichés et appels à l'action de montée en gamme.
   toPublic(): {
     id: string;
     email: string;
     displayName: string | null;
     avatarUrl: string | null;
     bio: string | null;
+    plan: PlanId;
+    apiPlan: ApiPlanId;
     createdAt: Date;
   } {
     return {
@@ -47,6 +90,8 @@ class User extends Model<UserAttributes, UserCreationAttributes> implements User
       displayName: this.display_name,
       avatarUrl: this.avatar_url,
       bio: this.bio,
+      plan: this.plan ?? 'free',
+      apiPlan: this.api_plan ?? 'free',
       createdAt: this.created_at,
     };
   }
@@ -70,6 +115,14 @@ User.init(
     bio: { type: DataTypes.TEXT, allowNull: true, defaultValue: null },
     token_version: { type: DataTypes.INTEGER, allowNull: false, defaultValue: 0 },
     settings: { type: DataTypes.JSON, allowNull: false, defaultValue: DEFAULT_USER_SETTINGS },
+    plan: { type: DataTypes.STRING(16), allowNull: false, defaultValue: 'free' },
+    usage_count: { type: DataTypes.INTEGER, allowNull: false, defaultValue: 0 },
+    usage_video_seconds: { type: DataTypes.INTEGER, allowNull: false, defaultValue: 0 },
+    usage_period_start: { type: DataTypes.DATE, allowNull: true, defaultValue: null },
+    api_plan: { type: DataTypes.STRING(16), allowNull: false, defaultValue: 'free' },
+    api_usage_count: { type: DataTypes.INTEGER, allowNull: false, defaultValue: 0 },
+    api_usage_period_start: { type: DataTypes.DATE, allowNull: true, defaultValue: null },
+    api_token_balance: { type: DataTypes.INTEGER, allowNull: false, defaultValue: 0 },
     created_at: { type: DataTypes.DATE, allowNull: false, defaultValue: DataTypes.NOW },
   },
   {

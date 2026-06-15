@@ -1,16 +1,18 @@
 // Vue détaillée d'une publication, rendue depuis le snapshot `payload` (média servi par URL
 // publique). Partagée par le détail in-app et la page publique /p/:slug.
-import { type ReactNode, useRef } from 'react'
+import { type ReactNode, useMemo } from 'react'
 import { useI18n } from '../../contexts/I18nContext'
+import { useAnnotatedVideo } from '../../hooks/useAnnotatedVideo'
 import { publicMediaUrl, publicVideoUrl } from '../../services/api'
 import type { Publication } from '../../types'
+import { BoundingBoxOverlay } from '../result/BoundingBoxOverlay'
 import { ColorPalette } from '../result/ColorPalette'
-import { MusicBadge } from '../result/MusicBadge'
+import { MusicList } from '../result/MusicList'
+import { ObjectList } from '../result/ObjectList'
+import { TranscriptKaraoke } from '../result/TranscriptKaraoke'
 import { SceneBadge } from '../result/SceneBadge'
 import { TagCloud } from '../result/TagCloud'
 import { VideoPlayer } from '../result/VideoPlayer'
-import { VideoTimeline } from '../result/VideoTimeline'
-
 function Section({ title, children }: { title: string; children: ReactNode }) {
   return (
     <div className="flex flex-col gap-2">
@@ -23,8 +25,18 @@ function Section({ title, children }: { title: string; children: ReactNode }) {
 export function PublicationView({ publication }: { publication: Publication }) {
   const { t } = useI18n()
   const p = publication.payload
-  const seekRef = useRef<((time: number) => void) | null>(null)
+  const priorityLabels = useMemo(
+    () => new Set((p.objects ?? []).filter((o) => o.priority !== false).map((o) => o.label)),
+    [p.objects]
+  )
+  const av = useAnnotatedVideo(priorityLabels)
   const hasPlayer = publication.hasVideo
+  // Image annotée : mêmes boîtes interactives + filtre que la carte (parité avec la vidéo).
+  const showImageBoxes =
+    publication.type === 'image' &&
+    publication.hasThumbnail &&
+    p.sourceWidth !== null &&
+    p.sourceHeight !== null
 
   return (
     <div className="flex flex-col gap-6">
@@ -34,7 +46,13 @@ export function PublicationView({ publication }: { publication: Publication }) {
           frames={p.frameDetections ?? []}
           sourceWidth={p.sourceWidth}
           sourceHeight={p.sourceHeight}
-          seekRef={seekRef}
+          {...av.player}
+        />
+      ) : showImageBoxes ? (
+        <BoundingBoxOverlay
+          src={publicMediaUrl(publication.slug)}
+          objects={p.objects ?? []}
+          sourceDims={{ w: p.sourceWidth as number, h: p.sourceHeight as number }}
         />
       ) : (
         publication.hasThumbnail && (
@@ -56,34 +74,37 @@ export function PublicationView({ publication }: { publication: Publication }) {
         <p className="text-[15px] leading-relaxed text-ink-700 dark:text-ink-200">{p.description}</p>
       </Section>
 
-      {p.music && p.music.length > 0 && (
-        <Section title={t('music.title')}>
-          <div>
-            <MusicBadge music={p.music} />
-          </div>
-        </Section>
-      )}
+      <Section title={t('result.scene')}>
+        <SceneBadge label={p.sceneLabel} confidence={p.sceneConfidence} indoor={p.indoor} />
+      </Section>
 
-      {p.timeline && p.timeline.length > 0 && (
-        <Section title={t('timeline.title')}>
-          <VideoTimeline
+      {p.objects && p.objects.length > 0 && (
+        <Section title={`${t('result.objects')} (${p.objects.length})`}>
+          <ObjectList
+            objects={p.objects}
             timeline={p.timeline}
-            onSeek={hasPlayer ? (time) => seekRef.current?.(time) : undefined}
+            onSeek={hasPlayer ? av.seek : undefined}
+            {...av.timeline}
           />
         </Section>
       )}
 
       {p.audioTranscript && (
         <Section title={t('transcript.title')}>
-          <blockquote className="rounded-xl border-l-2 border-brand-400 bg-ink-50 px-3.5 py-2.5 text-sm italic leading-relaxed text-ink-600 dark:bg-ink-800/60 dark:text-ink-300">
-            {p.audioTranscript}
-          </blockquote>
+          <TranscriptKaraoke
+            text={p.audioTranscript}
+            segments={p.transcriptSegments}
+            timeRef={hasPlayer ? av.timeline.timeRef : undefined}
+            playing={av.timeline.playing}
+          />
         </Section>
       )}
 
-      <Section title={t('result.scene')}>
-        <SceneBadge label={p.sceneLabel} confidence={p.sceneConfidence} indoor={p.indoor} />
-      </Section>
+      {p.music && p.music.length > 0 && (
+        <Section title={t('music.title')}>
+          <MusicList music={p.music} />
+        </Section>
+      )}
 
       {p.colors.length > 0 && (
         <Section title={t('result.colors')}>

@@ -7,7 +7,11 @@ import {
   listConversations,
   renameConversation,
 } from '../../controllers/conversations/conversations.controller';
-import { postMessage, streamMessage } from '../../controllers/conversations/messages.controller';
+import {
+  cancelMessage,
+  postMessage,
+  streamMessage,
+} from '../../controllers/conversations/messages.controller';
 
 const idParam = {
   type: 'object',
@@ -100,6 +104,19 @@ export async function conversationsRoutes(app: FastifyInstance): Promise<void> {
       },
     },
     postMessage
+  );
+
+  // POST /api/conversations/:id/cancel — annule l'analyse en cours (bouton Stop).
+  app.post<{ Params: { id: string } }>(
+    '/:id/cancel',
+    {
+      schema: {
+        tags: ['Conversations'],
+        summary: "Annule l'analyse en cours de la conversation",
+        params: idParam,
+      },
+    },
+    cancelMessage
   );
 
   // POST /api/conversations/:id/messages/stream — question de suivi streamée (SSE).

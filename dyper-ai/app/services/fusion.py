@@ -45,3 +45,47 @@ def merge_detections(
         if not overlaps:
             merged.append(candidate)
     return merged
+
+
+def mark_priority(objects: list[DetectedObject], floor: float) -> list[DetectedObject]:
+    """Marque chaque détection comme prioritaire (confiance ≥ plancher) ou non, en place.
+
+    Aucune détection n'est supprimée : celles sous le seuil (typiquement le vocabulaire ouvert)
+    sont conservées mais signalées non prioritaires — l'affichage les présente décochées par
+    défaut, tout en les laissant activables.
+    """
+    for obj in objects:
+        obj.priority = obj.confidence >= floor
+    return objects
+
+
+def filter_border_detections(
+    objects: list[DetectedObject], width: int, height: int, margin: float
+) -> list[DetectedObject]:
+    """Écarte les détections dont la boîte touche le bord du cadre (objets tronqués, ambigus).
+
+    Un objet à moitié hors champ (entrant/sortant par un bord) n'est vu que partiellement : sa
+    classe devient peu fiable (un camion tronqué ressemble à une voiture). On retire ces boîtes
+    avant le suivi pour ne pas démarrer une piste sur un label douteux. `margin` est une fraction
+    de la dimension correspondante ; `margin <= 0` désactive le filtre. Les objets sans boîte
+    (concepts globaux) sont toujours conservés.
+    """
+    if margin <= 0:
+        return objects
+    mx = margin * width
+    my = margin * height
+    kept: list[DetectedObject] = []
+    for obj in objects:
+        box = obj.boundingBox
+        if box is None:
+            kept.append(obj)
+            continue
+        touches_border = (
+            box.x <= mx
+            or box.y <= my
+            or box.x + box.w >= width - mx
+            or box.y + box.h >= height - my
+        )
+        if not touches_border:
+            kept.append(obj)
+    return kept

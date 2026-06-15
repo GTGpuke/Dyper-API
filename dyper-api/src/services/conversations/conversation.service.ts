@@ -82,11 +82,33 @@ export async function buildMessageViews(
       kind: m.kind,
       content: m.content,
       attachmentName: m.attachment_name,
+      status: m.status ?? 'ready',
       seq: m.seq,
       createdAt: m.created_at,
       analysis: analysis ? toInlineAnalysis(analysis) : null,
     };
   });
+}
+
+/**
+ * Derniers tours TEXTUELS de la conversation (questions de l'utilisateur + réponses de Dyper),
+ * pour donner au chat la mémoire du fil. Les cartes d'analyse (contenu vide) sont ignorées.
+ * `beforeSeq` exclut le message courant déjà persisté (cas du streaming).
+ */
+export async function recentChatHistory(
+  conversationId: string,
+  beforeSeq?: number,
+  limit = 10
+): Promise<{ role: 'user' | 'assistant'; content: string }[]> {
+  const where: Record<string, unknown> = {
+    conversation_id: conversationId,
+    kind: 'text',
+    content: { [Op.ne]: '' },
+  };
+  if (beforeSeq !== undefined) where.seq = { [Op.lt]: beforeSeq };
+
+  const rows = await Message.findAll({ where, order: [['seq', 'DESC']], limit });
+  return rows.reverse().map((m) => ({ role: m.role as 'user' | 'assistant', content: m.content }));
 }
 
 /** Dernière analyse de la conversation (contexte du chat de suivi), ou null. */
@@ -114,6 +136,10 @@ export function buildChatContext(analysis: Analysis): ChatContext {
     timeline: analysis.timeline,
     audioTranscript: analysis.audio_transcript,
     music: analysis.music,
+    frameDetections: analysis.frame_detections,
+    transcriptSegments: analysis.transcript_segments,
+    sourceWidth: analysis.source_width,
+    sourceHeight: analysis.source_height,
     visualization: {
       objects: analysis.objects ?? [],
       scene: {

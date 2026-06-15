@@ -14,6 +14,21 @@ export function isVideoPlatformUrl(url: string): boolean {
   return PLATFORM_PATTERNS.some((pattern) => pattern.test(url.trim()))
 }
 
+const VIDEO_FILE_EXTENSIONS = /\.(mp4|mov|m4v|webm|mkv|avi)$/i
+
+/**
+ * Déduit si une pièce jointe est une vidéo à partir de son seul libellé (nom de fichier OU URL).
+ * Utilisé au reload, quand on ne dispose plus du fichier local : seul `attachmentName` est connu.
+ */
+export function isVideoAttachment(name: string | null | undefined): boolean {
+  if (!name) return false
+  const trimmed = name.trim()
+  if (/^https?:\/\//i.test(trimmed)) {
+    return isVideoPlatformUrl(trimmed) || VIDEO_FILE_EXTENSIONS.test(trimmed)
+  }
+  return VIDEO_FILE_EXTENSIONS.test(trimmed)
+}
+
 // Motifs d'extraction de l'identifiant d'une vidéo YouTube (miniature déductible de l'URL).
 const YOUTUBE_ID_PATTERNS: RegExp[] = [
   /youtube\.com\/watch\?(?:.*&)?v=([\w-]{11})/i,

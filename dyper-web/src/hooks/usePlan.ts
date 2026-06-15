@@ -1,34 +1,42 @@
-// Forfait d'abonnement factice (vitrine marketing) : persisté en localStorage et partagé
-// entre la page Forfaits et la sidebar via un événement. Aucune facturation réelle.
-import { useCallback, useSyncExternalStore } from 'react'
+// Forfait d'abonnement de l'utilisateur courant. La source de vérité est le serveur (le forfait
+// est porté par le compte) ; la souscription passe par un paiement factice côté API. La facturation
+// n'est pas réelle, mais les quotas associés au forfait sont, eux, appliqués par la passerelle.
+import { useCallback } from 'react'
+import { useAuth } from '../contexts/AuthContext'
+import * as api from '../services/api'
+import type { PlanId } from '../types'
 
-export type PlanId = 'free' | 'pro' | 'studio'
+export type { PlanId } from '../types'
 
-const STORAGE_KEY = 'dyper-plan'
-const PLAN_EVENT = 'dyper-plan-changed'
-
-function readPlan(): PlanId {
-  const value = localStorage.getItem(STORAGE_KEY)
-  return value === 'pro' || value === 'studio' ? value : 'free'
+/** Tailles de fichier autorisées par forfait (Mo). Miroir des quotas de la passerelle
+ * (source de vérité côté serveur, `plan.service.ts`) — utilisé pour un retour immédiat à
+ * l'utilisateur ; la passerelle reste l'autorité (réponse 413 en cas de dépassement). */
+export const PLAN_FILE_LIMITS: Record<PlanId, { maxImageMb: number; maxVideoMb: number }> = {
+  free: { maxImageMb: 10, maxVideoMb: 30 },
+  pro: { maxImageMb: 20, maxVideoMb: 100 },
+  studio: { maxImageMb: 20, maxVideoMb: 100 },
 }
 
-function subscribe(callback: () => void): () => void {
-  window.addEventListener(PLAN_EVENT, callback)
-  window.addEventListener('storage', callback)
-  return () => {
-    window.removeEventListener(PLAN_EVENT, callback)
-    window.removeEventListener('storage', callback)
-  }
+interface UsePlanReturn {
+  plan: PlanId
+  /** Tailles de fichier autorisées par le forfait courant (Mo). */
+  fileLimits: { maxImageMb: number; maxVideoMb: number }
+  /** Souscrit un forfait (paiement factice) puis rafraîchit la session. */
+  subscribe: (plan: PlanId) => Promise<void>
 }
 
-/** Forfait courant + sélection (mock) — synchronisé entre tous les composants montés. */
-export function usePlan(): { plan: PlanId; setPlan: (plan: PlanId) => void } {
-  const plan = useSyncExternalStore(subscribe, readPlan)
+/** Forfait courant (issu du compte) + limites de fichier + souscription factice. */
+export function usePlan(): UsePlanReturn {
+  const { user, refresh } = useAuth()
+  const plan: PlanId = user?.plan ?? 'free'
 
-  const setPlan = useCallback((next: PlanId) => {
-    localStorage.setItem(STORAGE_KEY, next)
-    window.dispatchEvent(new Event(PLAN_EVENT))
-  }, [])
+  const subscribe = useCallback(
+    async (next: PlanId) => {
+      await api.checkout(next)
+      await refresh()
+    },
+    [refresh]
+  )
 
-  return { plan, setPlan }
+  return { plan, fileLimits: PLAN_FILE_LIMITS[plan], subscribe }
 }

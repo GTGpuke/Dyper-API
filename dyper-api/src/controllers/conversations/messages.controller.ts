@@ -4,23 +4,27 @@ import { v4 as uuidv4 } from 'uuid';
 import { ChatExchange, Message } from '../../models';
 import type Conversation from '../../models/Conversation';
 import { DEFAULT_CONVERSATION_TITLE } from '../../models/Conversation';
-import aiService from '../../services/ai/ai.service';
-import { persistAnalysis } from '../../services/analysis/persist.service';
 import groqService from '../../services/chat/groq.service';
+import {
+  type AnalysisJob,
+  cancelConversationAnalysis,
+  runAnalysisJob,
+} from '../../services/conversations/analysis-job.service';
 import {
   buildChatContext,
   buildMessageViews,
   findOwnedConversation,
   latestAnalysis,
   nextSeq,
+  recentChatHistory,
   touchConversation,
 } from '../../services/conversations/conversation.service';
 import sequelize from '../../services/db/database.service';
 import { env } from '../../services/env.service';
 import logger from '../../services/logger.service';
 import { readThumbnailBase64 } from '../../services/media/media.service';
-import type { AnalyzeType } from '../../types';
-import { FileTooLargeError, InvalidFileTypeError, ValidationError } from '../../utils/errors';
+import { assertWithinQuota, queuePriority } from '../../services/plan/plan.service';
+import { InvalidFileTypeError, ValidationError } from '../../utils/errors';
 import { isVideoPlatformUrl } from '../../utils/videoUrl';
 
 // Entrée normalisée d'un envoi de message (multipart ou JSON).
@@ -77,7 +81,8 @@ async function readMessageInput(request: FastifyRequest): Promise<MessageInput> 
   return input;
 }
 
-// Auto-titre au premier message : texte ou nom de fichier, tronqué à 60 caractères.
+// Auto-titre au premier message : texte de l'utilisateur, sinon nom de fichier ou URL. Pour un
+// média analysé sans texte, le titre est ensuite affiné avec la description (cf. analysis-job).
 function autoTitle(input: MessageInput): string {
   const base =
     input.text?.replace(/\s+/g, ' ').trim() ||
@@ -89,11 +94,13 @@ function autoTitle(input: MessageInput): string {
 }
 
 // Crée la paire de messages (user + assistant) en transaction, avec auto-titre et touch.
+// `assistantStatus` vaut « pending » pour une carte d'analyse traitée en tâche de fond.
 async function createMessagePair(
   conversation: Conversation,
   userId: string,
   input: MessageInput,
-  assistant: { kind: 'text' | 'analysis'; content: string; analysisRequestId: string | null }
+  assistant: { kind: 'text' | 'analysis'; content: string; analysisRequestId: string | null },
+  assistantStatus: 'pending' | 'ready'
 ): Promise<Message[]> {
   return sequelize.transaction(async (tx) => {
     const seq = await nextSeq(conversation.id, tx);
@@ -119,6 +126,7 @@ async function createMessagePair(
         kind: assistant.kind,
         content: assistant.content,
         analysis_request_id: assistant.analysisRequestId,
+        status: assistantStatus,
         seq: seq + 1,
       },
       { transaction: tx }
@@ -143,62 +151,60 @@ export async function postMessage(
   const conversation = await findOwnedConversation(request.params.id, userId);
   const input = await readMessageInput(request);
 
+  // Spécification d'une analyse à lancer en TÂCHE DE FOND (null pour une question de suivi/chat).
+  let jobSpec: Omit<
+    AnalysisJob,
+    'conversationId' | 'userMessageId' | 'assistantMessageId' | 'titleFromDescription'
+  > | null = null;
   let assistant: { kind: 'text' | 'analysis'; content: string; analysisRequestId: string | null };
+  let pendingStatus: 'pending' | 'ready' = 'ready';
 
   if (input.fileBuffer && input.mimetype) {
-    // Branche 1 — fichier joint : analyse image/vidéo.
+    // Branche 1 — fichier joint : analyse image/vidéo (tâche de fond).
     const isVideo = input.mimetype.startsWith('video/');
-    const maxMb = isVideo ? env.MAX_VIDEO_SIZE_MB : env.MAX_FILE_SIZE_MB;
-    if (input.fileBuffer.length > maxMb * 1024 * 1024) {
-      throw new FileTooLargeError({ maxMb });
-    }
+    const plan = await assertWithinQuota(userId, { isVideo, fileBytes: input.fileBuffer.length });
     const requestId = uuidv4();
-    const aiResponse = await aiService.process({
+    jobSpec = {
       requestId,
+      userId,
+      priority: queuePriority(plan),
+      type: isVideo ? 'video' : 'image',
+      isVideo,
       fileBuffer: input.fileBuffer,
       mimetype: input.mimetype,
       prompt: input.text,
       lang: input.lang,
-    });
-    const type: AnalyzeType = isVideo ? 'video' : 'image';
-    // Les vidéos originales sont conservées sur disque pour la relecture annotée.
-    await persistAnalysis(aiResponse, type, input.lang, userId, isVideo ? input.fileBuffer : null);
+    };
     assistant = { kind: 'analysis', content: '', analysisRequestId: requestId };
+    pendingStatus = 'pending';
   } else if (input.url) {
     // Branche 1 bis — analyse par URL : vidéo de plateforme (YouTube / Twitch) ou image.
+    const isVideo = isVideoPlatformUrl(input.url);
+    const plan = await assertWithinQuota(userId, { isVideo });
     const requestId = uuidv4();
-    if (isVideoPlatformUrl(input.url)) {
-      const aiResponse = await aiService.process({
-        requestId,
-        videoUrl: input.url,
-        prompt: input.text,
-        lang: input.lang,
-      });
-      // La vidéo téléchargée par dyper-ai est stockée pour la relecture annotée.
-      const videoBuffer = aiResponse.videoBase64
-        ? Buffer.from(aiResponse.videoBase64, 'base64')
-        : null;
-      await persistAnalysis(aiResponse, 'video', input.lang, userId, videoBuffer);
-    } else {
-      const aiResponse = await aiService.process({
-        requestId,
-        imageUrl: input.url,
-        prompt: input.text,
-        lang: input.lang,
-      });
-      await persistAnalysis(aiResponse, 'image', input.lang, userId);
-    }
+    jobSpec = {
+      requestId,
+      userId,
+      priority: queuePriority(plan),
+      type: isVideo ? 'video' : 'image',
+      isVideo,
+      imageUrl: isVideo ? undefined : input.url,
+      videoUrl: isVideo ? input.url : undefined,
+      prompt: input.text,
+      lang: input.lang,
+    };
     assistant = { kind: 'analysis', content: '', analysisRequestId: requestId };
+    pendingStatus = 'pending';
   } else {
     const context = await latestAnalysis(conversation.id, userId);
     if (context) {
-      // Branche 3 — question de suivi (chat non-streamé) sur la dernière analyse.
-      // La miniature est jointe (best-effort) : le modèle répond en voyant l'image.
+      // Branche 3 — question de suivi (chat non-streamé) : SYNCHRONE (réponse courte, non reprise).
       const { answer, model } = await groqService.chatWithResult({
         question: input.text as string,
         context: buildChatContext(context),
         lang: input.lang,
         imageBase64: await readThumbnailBase64(context.thumbnail_path),
+        history: await recentChatHistory(conversation.id),
       });
       try {
         await ChatExchange.create({
@@ -214,21 +220,40 @@ export async function postMessage(
       }
       assistant = { kind: 'text', content: answer, analysisRequestId: null };
     } else {
-      // Branche 2 — texte seul sans analyse antérieure : analyse de prompt (comportement historique).
+      // Branche 2 — texte seul sans analyse antérieure : analyse de prompt (tâche de fond).
+      const plan = await assertWithinQuota(userId, { isVideo: false });
       const requestId = uuidv4();
-      const aiResponse = await aiService.process({
+      jobSpec = {
         requestId,
+        userId,
+        priority: queuePriority(plan),
+        type: 'prompt',
+        isVideo: false,
         prompt: input.text,
         lang: input.lang,
-      });
-      await persistAnalysis(aiResponse, 'prompt', input.lang, userId);
+      };
       assistant = { kind: 'analysis', content: '', analysisRequestId: requestId };
+      pendingStatus = 'pending';
     }
   }
 
-  const pair = await createMessagePair(conversation, userId, input, assistant);
-  const views = await buildMessageViews(pair, userId);
+  // Auto-titre depuis la description : seulement pour un média sans texte, au premier échange.
+  const titleFromDescription = !input.text && conversation.title === DEFAULT_CONVERSATION_TITLE;
 
+  const pair = await createMessagePair(conversation, userId, input, assistant, pendingStatus);
+
+  // Analyse : lancée en tâche de fond (détachée de la requête) — elle survit au reload/à la fermeture.
+  if (jobSpec) {
+    void runAnalysisJob({
+      ...jobSpec,
+      conversationId: conversation.id,
+      userMessageId: pair[0].id,
+      assistantMessageId: pair[1].id,
+      titleFromDescription,
+    });
+  }
+
+  const views = await buildMessageViews(pair, userId);
   reply.status(201).send({
     success: true,
     conversation: conversation.toPublic(),
@@ -236,9 +261,25 @@ export async function postMessage(
   });
 }
 
-// Détecte une interruption volontaire du flux (abandon client), à ne pas journaliser en erreur.
+// POST /api/conversations/:id/cancel — annule l'analyse en cours (bouton Stop). Supprime l'échange.
+export async function cancelMessage(
+  request: FastifyRequest<{ Params: { id: string } }>,
+  reply: FastifyReply
+): Promise<void> {
+  const userId = request.authUser?.id as string;
+  await findOwnedConversation(request.params.id, userId);
+  const cancelled = cancelConversationAnalysis(request.params.id);
+  reply.send({ success: true, cancelled });
+}
+
+// Détecte une interruption volontaire (abandon client) : AbortError natif ou annulation Axios
+// (CanceledError / code ERR_CANCELED), à ne jamais journaliser en erreur.
 function isAbortError(e: unknown): boolean {
-  return e instanceof Error && e.name.toLowerCase().includes('abort');
+  if (e instanceof Error) {
+    const name = e.name.toLowerCase();
+    if (name.includes('abort') || name.includes('cancel')) return true;
+  }
+  return (e as { code?: string } | null)?.code === 'ERR_CANCELED';
 }
 
 // POST /api/conversations/:id/messages/stream — question de suivi streamée (SSE).
@@ -271,12 +312,14 @@ export async function streamMessage(
   });
   await touchConversation(conversation);
 
-  // La miniature est jointe (best-effort) : le modèle répond en voyant l'image.
+  // La miniature est jointe (best-effort) : le modèle répond en voyant l'image. L'historique
+  // (hors message courant, déjà persisté à userSeq) donne au modèle la mémoire du fil.
   const { stream, model } = await groqService.streamChatWithResult({
     question: text,
     context: buildChatContext(analysisRow),
     lang,
     imageBase64: await readThumbnailBase64(analysisRow.thumbnail_path),
+    history: await recentChatHistory(conversation.id, userSeq),
   });
 
   // Phase 2 — bascule en SSE : le cycle de vie Fastify (handler d'erreurs inclus) ne s'applique plus.

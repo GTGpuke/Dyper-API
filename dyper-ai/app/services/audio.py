@@ -189,6 +189,7 @@ async def recognize_music_file(audio_path: str) -> MusicInfo | None:
             artist=result.get("artist") or "Inconnu",
             title=result["title"],
             album=result.get("album") or None,
+            link=result.get("song_link") or None,
         )
     except Exception as exc:  # noqa: BLE001 — best-effort : tout échec est non bloquant.
         logger.warning(f"Reconnaissance musicale indisponible : {exc}")

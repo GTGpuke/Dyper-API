@@ -1,0 +1,29 @@
+# Surcharge de production : à utiliser AVEC docker-compose.yml derrière un reverse proxy de façade
+# (Caddy/nginx) qui termine le TLS et sert dyper.app. Cf. docs/HOSTING.md.
+#
+#   docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d --build
+#
+# Principe : les services n'écoutent que sur la boucle locale (127.0.0.1) ; seul le reverse proxy
+# expose le domaine public. dyper-ai n'expose aucun port (interne, atteint via le réseau Docker).
+services:
+  dyper-web:
+    build:
+      context: ./dyper-web
+      args:
+        # Origine unique : la SPA appelle /api/v1 en relatif (mêmes cookies, pas de CORS).
+        VITE_API_URL: ""
+        VITE_APP_KEY: ${APP_KEY:-}
+    ports:
+      - "127.0.0.1:8080:80"
+
+  dyper-api:
+    ports:
+      - "127.0.0.1:3000:3000"
+    environment:
+      NODE_ENV: production
+      # Origine servie par le reverse proxy (cookies first-party).
+      CORS_ORIGIN: ${CORS_ORIGIN:-https://dyper.app}
+      # Allocation de capacité : ajuster selon la VRAM du GPU (cf. docs/HOSTING.md §3).
+      MAX_CONCURRENT_ANALYSES: ${MAX_CONCURRENT_ANALYSES:-2}
+
+  # dyper-ai : aucune section `ports` — volontairement non exposé publiquement.

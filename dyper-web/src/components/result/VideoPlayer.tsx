@@ -7,18 +7,8 @@ import { useI18n } from '../../contexts/I18nContext'
 import { cn } from '../../lib/cn'
 import type { FrameDetections } from '../../types'
 import { formatTimecode } from '../../utils/formatters'
-
-// Palette cyclique : une couleur stable par identifiant de piste.
-const TRACK_COLORS = [
-  '#6366f1',
-  '#f59e0b',
-  '#10b981',
-  '#ef4444',
-  '#06b6d4',
-  '#d946ef',
-  '#84cc16',
-  '#f97316',
-]
+import { labelColor, trackColor } from '../../utils/labelColor'
+import { DetectionBox } from './DetectionBox'
 
 const SPEEDS = [0.5, 1, 1.5, 2]
 
@@ -38,6 +28,20 @@ interface Props {
   className?: string
   /** Rempli par le lecteur avec sa fonction de seek (chronologie cliquable du parent). */
   seekRef?: MutableRefObject<((time: number) => void) | null>
+  /** Reçoit en continu la position de lecture (s), sans re-render (tête de lecture de la chronologie). */
+  timeRef?: MutableRefObject<number>
+  /** Notifié des transitions lecture/pause (anime la tête de lecture de la chronologie). */
+  onPlayingChange?: (playing: boolean) => void
+  /** Notifié de la durée réelle de la vidéo (axe de la chronologie). */
+  onDuration?: (duration: number) => void
+  /** Labels prioritaires (visibles par défaut) ; les non prioritaires sont masqués sauf si cochés. */
+  priorityLabels?: ReadonlySet<string>
+  /** Dérogations de visibilité par label (choix explicites depuis la chronologie). */
+  overrides?: ReadonlyMap<string, boolean>
+  /** Coins arrondis du cadre (défaut true ; false pour un aperçu pleine largeur dans une carte). */
+  rounded?: boolean
+  /** Image d'affiche avant lecture (ex. première frame pour un aperçu de fichier). */
+  poster?: string
 }
 
 /** Index du dernier échantillon dont l'horodatage précède le temps courant (recherche binaire). */
@@ -125,7 +129,7 @@ function computeRenderBoxes(
     if (box) {
       out.push({
         key: `t${trackId}`,
-        color: TRACK_COLORS[trackId % TRACK_COLORS.length],
+        color: trackColor(trackId),
         label,
         trackId,
         box,
@@ -139,7 +143,7 @@ function computeRenderBoxes(
       if (obj.trackId != null || !obj.boundingBox) return
       out.push({
         key: `u${index}-${obj.label}`,
-        color: TRACK_COLORS[index % TRACK_COLORS.length],
+        color: labelColor(obj.label),
         label: obj.label,
         trackId: null,
         box: obj.boundingBox,
@@ -150,7 +154,21 @@ function computeRenderBoxes(
   return out
 }
 
-export function VideoPlayer({ src, frames, sourceWidth, sourceHeight, className, seekRef }: Props) {
+export function VideoPlayer({
+  src,
+  frames,
+  sourceWidth,
+  sourceHeight,
+  className,
+  seekRef,
+  timeRef,
+  onPlayingChange,
+  onDuration,
+  priorityLabels,
+  overrides,
+  rounded,
+  poster,
+}: Props) {
   const { t } = useI18n()
   const videoRef = useRef<HTMLVideoElement>(null)
   const rafRef = useRef<number>(0)
@@ -198,19 +216,26 @@ export function VideoPlayer({ src, frames, sourceWidth, sourceHeight, className,
     if (!playing) return
     const tick = () => {
       const video = videoRef.current
-      if (video) setCurrentTime(video.currentTime)
+      if (video) {
+        setCurrentTime(video.currentTime)
+        if (timeRef) timeRef.current = video.currentTime
+      }
       rafRef.current = requestAnimationFrame(tick)
     }
     rafRef.current = requestAnimationFrame(tick)
     return () => cancelAnimationFrame(rafRef.current)
-  }, [playing])
+  }, [playing, timeRef])
 
-  const seekTo = useCallback((time: number) => {
-    const video = videoRef.current
-    if (!video) return
-    video.currentTime = Math.max(0, Math.min(time, video.duration || time))
-    setCurrentTime(video.currentTime)
-  }, [])
+  const seekTo = useCallback(
+    (time: number) => {
+      const video = videoRef.current
+      if (!video) return
+      video.currentTime = Math.max(0, Math.min(time, video.duration || time))
+      setCurrentTime(video.currentTime)
+      if (timeRef) timeRef.current = video.currentTime
+    },
+    [timeRef]
+  )
 
   // Expose la fonction de seek au parent (clic sur un segment de la chronologie).
   useEffect(() => {
@@ -237,28 +262,46 @@ export function VideoPlayer({ src, frames, sourceWidth, sourceHeight, className,
   const active = frames.length > 0 ? frames[activeFrameIndex(frames, currentTime)] : null
   const hasDims = Boolean(sourceWidth && sourceHeight)
   // Boîtes interpolées/maintenues à l'instant courant (recalculées à chaque frame de rendu).
-  const renderBoxes = hasDims ? computeRenderBoxes(tracks, active, currentTime, sampleStep) : []
+  const allBoxes = hasDims ? computeRenderBoxes(tracks, active, currentTime, sampleStep) : []
+  // Visibilité par label : les non prioritaires sont masqués tant qu'ils ne sont pas cochés
+  // dans la chronologie (override). Sans information de priorité, tout reste affiché.
+  const renderBoxes = priorityLabels
+    ? allBoxes.filter((b) => overrides?.get(b.label) ?? priorityLabels.has(b.label))
+    : allBoxes
 
   return (
-    <div className={cn('overflow-hidden rounded-xl bg-ink-950', className)}>
+    <div className={cn('overflow-hidden bg-ink-950', rounded !== false && 'rounded-xl', className)}>
       {/* Vidéo + calque des cadres (l'élément suit le ratio natif : pas de letterbox). */}
       <div className="relative">
         <video
           ref={videoRef}
           src={src}
+          poster={poster}
           muted={muted}
           playsInline
           preload="metadata"
           className="block w-full"
           onClick={togglePlay}
-          onPlay={() => setPlaying(true)}
-          onPause={() => setPlaying(false)}
-          onEnded={() => setPlaying(false)}
+          onPlay={() => {
+            setPlaying(true)
+            onPlayingChange?.(true)
+          }}
+          onPause={() => {
+            setPlaying(false)
+            onPlayingChange?.(false)
+          }}
+          onEnded={() => {
+            setPlaying(false)
+            onPlayingChange?.(false)
+          }}
           onLoadedMetadata={(e) => {
-            setDuration(e.currentTarget.duration || 0)
+            const value = e.currentTarget.duration || 0
+            setDuration(value)
+            onDuration?.(value)
             e.currentTarget.volume = volume
           }}
           onTimeUpdate={(e) => {
+            if (timeRef) timeRef.current = e.currentTarget.currentTime
             if (!playing) setCurrentTime(e.currentTarget.currentTime)
           }}
         >
@@ -267,37 +310,18 @@ export function VideoPlayer({ src, frames, sourceWidth, sourceHeight, className,
         </video>
         {showBoxes && renderBoxes.length > 0 && (
           <div className="pointer-events-none absolute inset-0">
-            {renderBoxes.map((rb) => {
-              // Le label reste dans le cadre vidéo : à l'intérieur de la boîte près du bord
-              // supérieur, ancré à droite près du bord droit (sinon il serait coupé).
-              const nearTop = rb.box.y / (sourceHeight as number) < 0.06
-              const nearRight = (rb.box.x + rb.box.w) / (sourceWidth as number) > 0.85
-              return (
-                <div
-                  key={rb.key}
-                  className="absolute rounded-sm border-2"
-                  style={{
-                    borderColor: rb.color,
-                    left: `${(rb.box.x / (sourceWidth as number)) * 100}%`,
-                    top: `${(rb.box.y / (sourceHeight as number)) * 100}%`,
-                    width: `${(rb.box.w / (sourceWidth as number)) * 100}%`,
-                    height: `${(rb.box.h / (sourceHeight as number)) * 100}%`,
-                  }}
-                >
-                  <span
-                    className={cn(
-                      'absolute whitespace-nowrap rounded px-1 font-mono text-[10px] font-semibold text-white',
-                      nearTop ? 'top-0' : '-top-5',
-                      nearRight ? 'right-0' : 'left-0'
-                    )}
-                    style={{ backgroundColor: rb.color }}
-                  >
-                    {rb.label}
-                    {rb.trackId !== null && ` #${rb.trackId}`}
-                  </span>
-                </div>
-              )
-            })}
+            {renderBoxes.map((rb) => (
+              <DetectionBox
+                key={rb.key}
+                leftPct={(rb.box.x / (sourceWidth as number)) * 100}
+                topPct={(rb.box.y / (sourceHeight as number)) * 100}
+                widthPct={(rb.box.w / (sourceWidth as number)) * 100}
+                heightPct={(rb.box.h / (sourceHeight as number)) * 100}
+                color={rb.color}
+                label={rb.label}
+                sublabel={rb.trackId !== null ? `#${rb.trackId}` : undefined}
+              />
+            ))}
           </div>
         )}
       </div>
@@ -407,22 +431,24 @@ export function VideoPlayer({ src, frames, sourceWidth, sourceHeight, className,
           className="h-1.5 w-16 cursor-pointer appearance-none rounded-full bg-white/20 accent-brand-500"
         />
 
-        {/* Bascule de l'affichage des cadres. */}
-        <button
-          type="button"
-          onClick={() => setShowBoxes((s) => !s)}
-          aria-label={t('player.toggleBoxes')}
-          title={t('player.toggleBoxes')}
-          className={cn(
-            'grid h-8 w-8 place-items-center rounded-lg hover:bg-white/10',
-            showBoxes ? 'text-brand-400' : 'text-ink-500'
-          )}
-        >
-          <svg className="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-            <rect x="3" y="3" width="18" height="18" rx="2" />
-            <rect x="8" y="8" width="8" height="8" rx="1" strokeDasharray="3 2" />
-          </svg>
-        </button>
+        {/* Bascule de l'affichage des cadres (seulement quand il y a des détections). */}
+        {frames.length > 0 && (
+          <button
+            type="button"
+            onClick={() => setShowBoxes((s) => !s)}
+            aria-label={t('player.toggleBoxes')}
+            title={t('player.toggleBoxes')}
+            className={cn(
+              'grid h-8 w-8 place-items-center rounded-lg hover:bg-white/10',
+              showBoxes ? 'text-brand-400' : 'text-ink-500'
+            )}
+          >
+            <svg className="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+              <rect x="3" y="3" width="18" height="18" rx="2" />
+              <rect x="8" y="8" width="8" height="8" rx="1" strokeDasharray="3 2" />
+            </svg>
+          </button>
+        )}
       </div>
     </div>
   )

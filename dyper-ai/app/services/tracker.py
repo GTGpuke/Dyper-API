@@ -5,7 +5,7 @@ identités COCO + vocabulaire ouvert dans un seul espace. À chaque frame, chaqu
 rapprochée des pistes existantes par un COÛT combinant quatre signaux :
   - MOUVEMENT  : distance entre la détection et la position PRÉDITE de la piste (depuis sa vitesse) ;
   - POSITION   : 1 − IoU entre la boîte prédite et la détection ;
-  - LABEL      : pénalité si les classes diffèrent (une voiture ne « devient » pas un piéton) ;
+  - LABEL      : pénalité si les classes diffèrent, sauf entre classes confondues (ex. car/truck) ;
   - APPARENCE  : distance entre couleurs moyennes (départage deux objets de même classe).
 L'affectation est gloutonne (coût croissant) sous un plafond ; une piste non vue est prédite puis
 oubliée après `TRACK_MAX_AGE` frames (tolérance aux occlusions et détections manquées). Ainsi
@@ -24,6 +24,25 @@ from app.services.fusion import iou
 _MAX_COLOR_DISTANCE = float(np.sqrt(3) * 255)
 # Lissage exponentiel de la vitesse estimée (réactif sans être bruité).
 _VELOCITY_SMOOTHING = 0.6
+
+# Classes mutuellement confondues par le détecteur (même objet réel sous des labels voisins) :
+# la pénalité de label NE s'applique PAS entre elles, sinon une piste se casse quand le modèle
+# hésite (une voiture tantôt « car », tantôt « truck »/« bus » resterait la même piste).
+_CONFUSABLE_GROUPS: tuple[frozenset[str], ...] = (
+    frozenset({"car", "truck", "bus", "van", "suv", "pickup truck", "minivan"}),
+    frozenset({"person", "man", "woman", "boy", "girl", "pedestrian", "child"}),
+)
+_GROUP_OF: dict[str, int] = {
+    label: index for index, group in enumerate(_CONFUSABLE_GROUPS) for label in group
+}
+
+
+def _same_group(a: str, b: str) -> bool:
+    """Vrai si deux labels sont identiques ou appartiennent au même groupe de classes confondues."""
+    if a == b:
+        return True
+    group_a = _GROUP_OF.get(a.lower())
+    return group_a is not None and group_a == _GROUP_OF.get(b.lower())
 
 
 def _mean_color(image: np.ndarray, box: BoundingBox) -> np.ndarray | None:
@@ -104,6 +123,10 @@ class ObjectTracker:
         self._tracks: list[_Track] = []
         self._next_id = 1
 
+    def reset(self) -> None:
+        """Vide les pistes actives (coupure de plan) — les identifiants déjà émis ne sont pas réutilisés."""
+        self._tracks = []
+
     def _cost(
         self, track: _Track, box: BoundingBox, color: np.ndarray | None, label: str, diag: float
     ) -> float:
@@ -119,7 +142,7 @@ class ObjectTracker:
         )
         iou_term = 1.0 - iou(track.predicted_box(), box)
         color_term = _color_distance(track.color, color)
-        label_term = 0.0 if track.label == label else settings.TRACK_LABEL_PENALTY
+        label_term = 0.0 if _same_group(track.label, label) else settings.TRACK_LABEL_PENALTY
         return (
             settings.TRACK_W_MOTION * center_dist
             + settings.TRACK_W_IOU * iou_term

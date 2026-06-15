@@ -18,8 +18,12 @@ interface Props {
   streamingText: string
   analyzingPreview: AnalyzingPreview | null
   uploadPct: number | null
+  /** Instant de départ de l'analyse (epoch ms) connu côté serveur — calage stable au reload. */
+  analysisStartedAt?: number | null
   onRetry: () => void
   onDropFile: (file: File) => void
+  /** Service saturé : file d'attente de calcul active. */
+  analyzeBusy?: boolean
 }
 
 export function ChatThread({
@@ -30,8 +34,10 @@ export function ChatThread({
   streamingText,
   analyzingPreview,
   uploadPct,
+  analysisStartedAt,
   onRetry,
   onDropFile,
+  analyzeBusy,
 }: Props) {
   const { t } = useI18n()
   const scrollRef = useRef<HTMLDivElement>(null)
@@ -40,13 +46,11 @@ export function ChatThread({
   const dragDepthRef = useRef(0)
 
   // Suit le contenu (nouveaux messages, deltas de streaming) si l'utilisateur est en bas.
-  // biome-ignore lint/correctness/useExhaustiveDependencies: follow est volontairement déclenché par le contenu.
   useEffect(() => {
     follow()
   }, [messages.length, streamingText, sending, follow])
 
   // Saut instantané en bas à l'ouverture d'une conversation.
-  // biome-ignore lint/correctness/useExhaustiveDependencies: saut au changement de fil uniquement.
   useEffect(() => {
     if (!loading) scrollToBottom(false)
   }, [loading, scrollToBottom])
@@ -90,8 +94,16 @@ export function ChatThread({
             )
           )}
 
-          {/* Analyse en cours : aperçu scanné + barre de progression + étapes. */}
-          {sending && <AnalyzingIndicator preview={analyzingPreview} uploadPct={uploadPct} />}
+          {/* Analyse en cours : aperçu scanné + barre de progression + étapes (l'arrêt se fait
+              depuis le composer, comme pour une réponse du LLM). */}
+          {sending && (
+            <AnalyzingIndicator
+              preview={analyzingPreview}
+              uploadPct={uploadPct}
+              startedAt={analysisStartedAt}
+              busy={analyzeBusy}
+            />
+          )}
 
           {/* Réponse en cours de streaming. */}
           {streaming && (

@@ -147,7 +147,12 @@ class TestReconnaissanceMusicale:
         response = MagicMock()
         response.json.return_value = {
             "status": "success",
-            "result": {"artist": "Daft Punk", "title": "Around the World", "album": "Homework"},
+            "result": {
+                "artist": "Daft Punk",
+                "title": "Around the World",
+                "album": "Homework",
+                "song_link": "https://lis.tn/AroundTheWorld",
+            },
         }
         http_client = MagicMock()
         http_client.post = AsyncMock(return_value=response)
@@ -165,6 +170,7 @@ class TestReconnaissanceMusicale:
         assert music.artist == "Daft Punk"
         assert music.title == "Around the World"
         assert music.album == "Homework"
+        assert music.link == "https://lis.tn/AroundTheWorld"
 
     async def test_musique_non_identifiee_retourne_none(self):
         """Vérifie le repli None quand AudD ne reconnaît rien (result null)."""

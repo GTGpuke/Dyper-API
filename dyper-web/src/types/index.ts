@@ -15,6 +15,8 @@ export interface DetectedObject {
   boundingBox?: BoundingBox
   /** Identifiant de piste stable entre frames (vidéos trackées). */
   trackId?: number | null
+  /** Détection prioritaire (confiance ≥ seuil) ; les non prioritaires sont décochées par défaut. */
+  priority?: boolean
 }
 
 /** Détections complètes d'une frame échantillonnée (lecteur vidéo annoté). */
@@ -28,6 +30,8 @@ export interface MusicInfo {
   artist: string
   title: string
   album?: string | null
+  /** Lien d'écoute (page multi-plateformes AudD), si disponible. */
+  link?: string | null
 }
 
 /** Tranche horodatée de la transcription audio. */
@@ -163,13 +167,101 @@ export interface LiveChatMessage {
 
 // ─── Compte utilisateur & préférences ────────────────────────────────────────
 
+/** Identifiant de forfait d'abonnement (facturation factice). */
+export type PlanId = 'free' | 'pro' | 'studio'
+
+/** Forfait de l'API publique (distinct du forfait du site). */
+export type ApiPlanId = 'free' | 'starter' | 'business' | 'unlimited'
+
 export interface User {
   id: string
   email: string
   displayName: string | null
   avatarUrl: string | null
   bio: string | null
+  /** Forfait du site — pilote les quotas affichés et l'appel à l'action de montée en gamme. */
+  plan: PlanId
+  /** Forfait de l'API publique (indépendant du forfait du site). */
+  apiPlan: ApiPlanId
   createdAt: string
+}
+
+/** Quotas et privilèges d'un forfait (toutes les offres ont la même puissance d'analyse). */
+export interface PlanLimits {
+  monthlyAnalyses: number
+  monthlyVideoMinutes: number
+  maxImageMb: number
+  maxVideoMb: number
+  queuePriority: number
+}
+
+/** Forfait courant et ses quotas. */
+export interface PlanView {
+  plan: PlanId
+  limits: PlanLimits
+}
+
+/** Consommation mensuelle courante de l'utilisateur. */
+export interface UsageView {
+  plan: PlanId
+  limits: PlanLimits
+  usage: { analyses: number; videoMinutes: number }
+  periodStart: string | null
+  resetsAt: string
+}
+
+/** Charge courante de la passerelle (allocation de capacité). */
+export interface CapacityStatus {
+  maxConcurrent: number
+  active: number
+  queued: number
+  busy: boolean
+  avgAnalysisSeconds: number
+}
+
+// ─── API publique : forfait développeur + clés ───────────────────────────────
+
+/** Quotas d'un forfait API. */
+export interface ApiPlanLimits {
+  monthlyRequests: number
+  maxImageMb: number
+  maxVideoMb: number
+  rateLimitPerMin: number
+  queuePriority: number
+}
+
+/** Forfait API courant et ses quotas. */
+export interface ApiPlanView {
+  plan: ApiPlanId
+  limits: ApiPlanLimits
+}
+
+/** Consommation API mensuelle courante. */
+export interface ApiUsageView {
+  plan: ApiPlanId
+  limits: ApiPlanLimits
+  usage: { requests: number }
+  /** Solde de tokens achetés (crédits de dépassement). */
+  tokenBalance: number
+  periodStart: string | null
+  resetsAt: string
+}
+
+/** Pack de tokens API achetable. */
+export type ApiTokenPackId = 'small' | 'medium' | 'large'
+
+/** Vue publique d'une clé API (jamais le secret). */
+export interface ApiKey {
+  id: string
+  name: string
+  prefix: string
+  lastUsedAt: string | null
+  createdAt: string
+}
+
+/** Clé fraîchement créée : la vue + le secret en clair, montré une seule fois. */
+export interface ApiKeyCreated extends ApiKey {
+  secret: string
 }
 
 export interface AppearanceSettings {
@@ -241,6 +333,8 @@ export interface ConversationMessage {
   kind: MessageKind
   content: string
   attachmentName: string | null
+  /** Statut serveur d'une carte d'analyse : « pending » (tâche de fond) → « ready » / « error ». */
+  analysisStatus: 'pending' | 'ready' | 'error'
   seq: number
   createdAt: string
   analysis: InlineAnalysis | null

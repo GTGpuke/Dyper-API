@@ -31,7 +31,7 @@ class AiService {
    * @throws {AiProcessingError} Si dyper-ai retourne une erreur de traitement.
    */
   async process(opts: ProcessOptions): Promise<ProcessAiResponse> {
-    const { requestId, fileBuffer, mimetype, imageUrl, videoUrl, prompt, lang } = opts;
+    const { requestId, fileBuffer, mimetype, imageUrl, videoUrl, prompt, lang, signal } = opts;
 
     const payload: Record<string, unknown> = {
       requestId,
@@ -67,11 +67,23 @@ class AiService {
     const timeout = type === 'video' ? env.AI_VIDEO_TIMEOUT_MS : env.AI_REQUEST_TIMEOUT_MS;
 
     try {
-      const response = await this.client.post<ProcessAiResponse>('/process', payload, { timeout });
+      const response = await this.client.post<ProcessAiResponse>('/process', payload, {
+        timeout,
+        signal,
+        // Traçabilité inter-services : dyper-ai journalise et renvoie le même identifiant.
+        headers: { 'X-Request-Id': requestId },
+      });
       logger.info('Réponse reçue de dyper-ai.', { requestId });
       return response.data;
     } catch (e) {
       const err = e as AxiosError<{ detail?: string; message?: string }>;
+
+      // Annulation volontaire (client déconnecté) : propagée telle quelle, jamais journalisée
+      // en erreur. La passerelle l'absorbe sans renvoyer de réponse au client déjà parti.
+      if (err.code === 'ERR_CANCELED' || err.name === 'CanceledError') {
+        logger.info('Appel à dyper-ai annulé (client déconnecté).', { requestId });
+        throw e;
+      }
 
       // Timeout : dyper-ai n'a pas répondu dans les délais impartis.
       if (err.code === 'ECONNABORTED' || err.message?.includes('timeout')) {

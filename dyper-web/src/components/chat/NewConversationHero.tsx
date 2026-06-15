@@ -5,9 +5,11 @@ import { type DragEvent, type ReactNode, useEffect, useRef, useState } from 'rea
 import { Link } from 'react-router-dom'
 import logo from '../../assets/dyper-logo.svg'
 import { useI18n } from '../../contexts/I18nContext'
+import { usePlan } from '../../hooks/usePlan'
 import { cn } from '../../lib/cn'
 import type { PendingAttachment } from '../../types'
 import { formatBytes, formatTimecode } from '../../utils/formatters'
+import { VideoPlayer } from '../result/VideoPlayer'
 import { Button } from '../ui/Button'
 import { Spinner } from '../ui/Spinner'
 import { StatChip } from '../ui/StatChip'
@@ -53,7 +55,7 @@ interface Props {
   onPickFile: (file: File) => void
   onAttachUrl: (url: string) => void
   onRemoveAttachment: () => void
-  /** Lance l'analyse : question optionnelle (avec pièce jointe) ou texte libre (sans). */
+  /** Lance l'analyse du média joint (aucune question pré-analyse : on discute après). */
   onSubmit: (text: string) => void
 }
 
@@ -68,10 +70,10 @@ export function NewConversationHero({
   onSubmit,
 }: Props) {
   const { t } = useI18n()
+  const { fileLimits } = usePlan()
   const [dragging, setDragging] = useState(false)
   const [urlMode, setUrlMode] = useState(false)
   const [url, setUrl] = useState('')
-  const [question, setQuestion] = useState('')
   const dragDepthRef = useRef(0)
   const fileInputRef = useRef<HTMLInputElement>(null)
   const urlInputRef = useRef<HTMLInputElement>(null)
@@ -147,7 +149,7 @@ export function NewConversationHero({
                     <img
                       src={attachment.thumbnailUrl}
                       alt=""
-                      className="max-h-80 w-full bg-ink-900 object-contain"
+                      className="max-h-80 w-full bg-ink-950 object-contain"
                     />
                   )}
                   <div className="flex items-center gap-3 p-5">
@@ -163,21 +165,21 @@ export function NewConversationHero({
                 </div>
               ) : fileAttachment?.isVideo ? (
                 fileAttachment.previewUrl && (
-                  <video
+                  <VideoPlayer
                     src={fileAttachment.previewUrl}
-                    controls
-                    preload="metadata"
-                    className="max-h-80 w-full bg-ink-900 object-contain"
-                  >
-                    <track kind="captions" />
-                  </video>
+                    frames={[]}
+                    sourceWidth={null}
+                    sourceHeight={null}
+                    poster={fileAttachment.thumbnailUrl ?? undefined}
+                    rounded={false}
+                  />
                 )
               ) : (
                 fileAttachment?.previewUrl && (
                   <img
                     src={fileAttachment.previewUrl}
                     alt={fileAttachment.file.name}
-                    className="max-h-80 w-full bg-ink-900 object-contain"
+                    className="max-h-80 w-full bg-ink-950 object-contain"
                   />
                 )
               )}
@@ -207,23 +209,13 @@ export function NewConversationHero({
                 </Button>
               </div>
 
-              {/* Question optionnelle + lancement (la confirmation se fait ici, aperçu en tête). */}
-              <div className="flex items-center gap-2 p-4">
-                <input
-                  type="text"
-                  value={question}
-                  onChange={(e) => setQuestion(e.target.value)}
-                  onKeyDown={(e) => {
-                    if (e.key === 'Enter' && !analyzeDisabled && !checking) onSubmit(question.trim())
-                  }}
-                  placeholder={t('hero.questionPlaceholder')}
-                  className="min-w-0 flex-1 rounded-xl border border-ink-200 bg-white px-3.5 py-2.5 text-sm outline-none focus:border-violet-400 focus:shadow-focus dark:border-ink-700 dark:bg-ink-800 dark:text-ink-50"
-                />
+              {/* Lancement de l'analyse (la confirmation se fait ici, aperçu en tête). */}
+              <div className="p-4">
                 <button
                   type="button"
-                  onClick={() => onSubmit(question.trim())}
+                  onClick={() => onSubmit('')}
                   disabled={analyzeDisabled || checking}
-                  className="flex shrink-0 items-center gap-1.5 rounded-xl bg-gradient-to-r from-blue-500 to-violet-600 px-4 py-2.5 text-sm font-semibold text-white shadow-card transition-all hover:shadow-card-hover hover:brightness-110 disabled:opacity-50"
+                  className="flex w-full items-center justify-center gap-1.5 rounded-xl bg-gradient-to-r from-blue-500 to-violet-600 px-4 py-2.5 text-sm font-semibold text-white shadow-card transition-all hover:shadow-card-hover hover:brightness-110 disabled:opacity-50"
                 >
                   <svg className="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
                     <circle cx="11" cy="11" r="7" />
@@ -294,7 +286,9 @@ export function NewConversationHero({
                     </span>
                   ))}
                 </div>
-                <p className="mt-2 text-xs text-ink-400 dark:text-ink-500">{t('hero.limits')}</p>
+                <p className="mt-2 text-xs text-ink-400 dark:text-ink-500">
+                  {t('hero.limits', { img: fileLimits.maxImageMb, vid: fileLimits.maxVideoMb })}
+                </p>
               </button>
 
               {/* Option URL (seule entrée secondaire : Dyper analyse des médias, pas du texte). */}

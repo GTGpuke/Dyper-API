@@ -29,9 +29,12 @@ const SAMPLE_TAB_KEY = 'dyper-docs-lang'
 // Endpoints GET sans paramètre de chemin, exécutables sans risque depuis le navigateur.
 const TRYABLE_PATHS: Record<string, string> = {
   health: '/health',
-  getMe: '/api/me',
-  listAnalyses: '/api/analyses?page=1&limit=3',
-  listConversations: '/api/conversations',
+  getMe: '/api/v1/me',
+  listAnalyses: '/api/v1/analyses?page=1&limit=3',
+  listConversations: '/api/v1/conversations',
+  getPlan: '/api/v1/me/plan',
+  getUsage: '/api/v1/me/usage',
+  getCapacity: '/api/v1/me/capacity',
 }
 
 interface ErrorExample {

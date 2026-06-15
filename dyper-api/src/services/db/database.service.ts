@@ -64,9 +64,22 @@ async function ensureSchemaUpgrades(): Promise<void> {
   await ensureColumn('analysis', 'music', 'JSON DEFAULT NULL');
   await ensureColumn('analysis', 'transcript_segments', 'JSON DEFAULT NULL');
 
+  // Abonnement et compteurs d'usage mensuels (forfaits) — additifs, sûrs en production.
+  await ensureColumn('user', 'plan', "VARCHAR(16) NOT NULL DEFAULT 'free'");
+  await ensureColumn('user', 'usage_count', 'INTEGER NOT NULL DEFAULT 0');
+  await ensureColumn('user', 'usage_video_seconds', 'INTEGER NOT NULL DEFAULT 0');
+  await ensureColumn('user', 'usage_period_start', 'DATETIME DEFAULT NULL');
+
+  // Abonnement API (distinct du forfait du site) et compteur de requêtes API mensuel.
+  await ensureColumn('user', 'api_plan', "VARCHAR(16) NOT NULL DEFAULT 'free'");
+  await ensureColumn('user', 'api_usage_count', 'INTEGER NOT NULL DEFAULT 0');
+  await ensureColumn('user', 'api_usage_period_start', 'DATETIME DEFAULT NULL');
+  await ensureColumn('user', 'api_token_balance', 'INTEGER NOT NULL DEFAULT 0');
+
   // Tables créées même en production (sync sans alter = CREATE TABLE IF NOT EXISTS) :
   // conversations/messages et feed public « Global » (publications, votes, commentaires, signalements).
   const {
+    ApiKey,
     Conversation,
     Message,
     Publication,
@@ -74,8 +87,11 @@ async function ensureSchemaUpgrades(): Promise<void> {
     PublicationComment,
     PublicationReport,
   } = await import('../../models');
+  await ApiKey.sync();
   await Conversation.sync();
   await Message.sync();
+  // Statut du message (cartes d'analyse en tâche de fond) — additif, sûr en production.
+  await ensureColumn('message', 'status', "VARCHAR(16) NOT NULL DEFAULT 'ready'");
   await Publication.sync();
   await PublicationVote.sync();
   await PublicationComment.sync();

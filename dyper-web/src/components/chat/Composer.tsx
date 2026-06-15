@@ -1,5 +1,7 @@
-// Composer du chat : textarea auto-extensible, pièce jointe, Entrée pour envoyer,
-// bouton Stop pendant le streaming.
+// Composer du chat : textarea auto-extensible, pièce jointe, Entrée pour envoyer.
+// Une analyse et une demande au LLM sont traitées de façon IDENTIQUE : pendant l'une ou l'autre,
+// la saisie et la pièce jointe sont désactivées, et le bouton d'envoi devient un bouton « Arrêter »
+// qui interrompt l'opération en cours.
 import { useRef, useState, type KeyboardEvent } from 'react'
 import { useI18n } from '../../contexts/I18nContext'
 import { useAutosizeTextarea } from '../../hooks/useAutosizeTextarea'
@@ -8,8 +10,10 @@ import { AttachMenu } from './AttachMenu'
 import { AttachmentChip } from './AttachmentChip'
 
 interface Props {
-  disabled: boolean
-  streaming: boolean
+  /** Une opération est en cours (analyse, streaming ou chargement) : saisie et envoi suspendus. */
+  busy: boolean
+  /** L'opération en cours est interruptible : le bouton d'envoi devient « Arrêter ». */
+  stoppable: boolean
   attachment: PendingAttachment | null
   attachmentChecking: boolean
   attachmentError: string | null
@@ -17,12 +21,13 @@ interface Props {
   onAttachUrl: (url: string) => void
   onRemoveAttachment: () => void
   onSend: (text: string) => void
+  /** Interrompt l'opération en cours (analyse ou réponse du LLM). */
   onStop: () => void
 }
 
 export function Composer({
-  disabled,
-  streaming,
+  busy,
+  stoppable,
   attachment,
   attachmentChecking,
   attachmentError,
@@ -37,8 +42,7 @@ export function Composer({
   const textareaRef = useRef<HTMLTextAreaElement>(null)
   useAutosizeTextarea(textareaRef, draft)
 
-  const canSend =
-    !disabled && !streaming && !attachmentChecking && (draft.trim().length > 0 || !!attachment)
+  const canSend = !busy && !attachmentChecking && (draft.trim().length > 0 || !!attachment)
 
   function send(): void {
     if (!canSend) return
@@ -72,7 +76,7 @@ export function Composer({
         )}
 
         <div className="surface flex items-end gap-1.5 p-2 focus-within:border-brand-400 focus-within:shadow-focus">
-          <AttachMenu onPickFile={onAttachFile} onSubmitUrl={onAttachUrl} />
+          <AttachMenu onPickFile={onAttachFile} onSubmitUrl={onAttachUrl} disabled={busy} />
 
           <textarea
             ref={textareaRef}
@@ -80,11 +84,12 @@ export function Composer({
             onChange={(e) => setDraft(e.target.value)}
             onKeyDown={handleKeyDown}
             rows={1}
+            disabled={busy}
             placeholder={t('chat.composer.placeholder')}
-            className="max-h-52 min-w-0 flex-1 resize-none bg-transparent px-1.5 py-1.5 text-[15px] leading-relaxed text-ink-900 outline-none placeholder:text-ink-400 dark:text-ink-50 dark:placeholder:text-ink-500"
+            className="max-h-52 min-w-0 flex-1 resize-none bg-transparent px-1.5 py-1.5 text-[15px] leading-relaxed text-ink-900 outline-none placeholder:text-ink-400 disabled:cursor-not-allowed disabled:opacity-60 dark:text-ink-50 dark:placeholder:text-ink-500"
           />
 
-          {streaming ? (
+          {stoppable ? (
             <button
               type="button"
               onClick={onStop}

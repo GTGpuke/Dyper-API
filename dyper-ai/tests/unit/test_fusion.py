@@ -2,7 +2,12 @@
 
 import pytest
 from app.schemas.response import BoundingBox, DetectedObject
-from app.services.fusion import iou, merge_detections
+from app.services.fusion import (
+    filter_border_detections,
+    iou,
+    mark_priority,
+    merge_detections,
+)
 
 
 def _obj(label: str, x: float, y: float, w: float, h: float, conf: float = 0.9) -> DetectedObject:
@@ -95,3 +100,49 @@ class TestMergeDetections:
         primary = [_obj("person", 0, 0, 10, 10)]
         merged = merge_detections(primary, [], 0.55)
         assert [o.label for o in merged] == ["person"]
+
+
+@pytest.mark.unit
+class TestMarkPriority:
+    """Tests du marquage de priorité (plancher de confiance, sans aucune suppression)."""
+
+    def test_marque_selon_le_plancher(self):
+        """Vérifie le marquage prioritaire/non selon le seuil, sans suppression de détection."""
+        objects = [
+            _obj("person", 0, 0, 10, 10, conf=0.9),
+            _obj("plante", 50, 50, 10, 10, conf=0.31),
+        ]
+        marked = mark_priority(objects, 0.51)
+        assert len(marked) == 2  # aucune détection retirée
+        assert {o.label: o.priority for o in marked} == {"person": True, "plante": False}
+
+    def test_plancher_inclusif(self):
+        """Vérifie que le plancher est inclusif (confiance == seuil → prioritaire)."""
+        objects = [_obj("car", 0, 0, 10, 10, conf=0.51)]
+        assert mark_priority(objects, 0.51)[0].priority is True
+
+    def test_liste_vide(self):
+        """Vérifie le cas trivial d'une liste vide."""
+        assert mark_priority([], 0.51) == []
+
+
+@pytest.mark.unit
+class TestFilterBorderDetections:
+    """Tests du filtre de bordure (objets tronqués par le bord, écartés en vidéo)."""
+
+    def test_marge_nulle_desactive_le_filtre(self):
+        """Vérifie qu'une marge ≤ 0 ne retire rien (même une boîte au bord)."""
+        objects = [_obj("car", 0, 0, 10, 10)]
+        assert len(filter_border_detections(objects, 100, 100, 0.0)) == 1
+
+    def test_retire_les_boites_au_bord(self):
+        """Vérifie qu'une boîte touchant un bord (objet tronqué) est écartée, le centre gardé."""
+        edge = _obj("truck", 0, 40, 20, 20)  # touche le bord gauche (x = 0).
+        center = _obj("car", 40, 40, 20, 20)  # bien à l'intérieur.
+        kept = filter_border_detections([edge, center], 100, 100, 0.05)
+        assert [o.label for o in kept] == ["car"]
+
+    def test_garde_les_objets_sans_boite(self):
+        """Vérifie qu'un objet sans boîte (concept global) est toujours conservé."""
+        objects = [DetectedObject(label="musique", confidence=0.5, boundingBox=None)]
+        assert len(filter_border_detections(objects, 100, 100, 0.05)) == 1

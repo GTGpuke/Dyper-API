@@ -119,6 +119,16 @@ export class UnauthorizedError extends AppError {
   }
 }
 
+/**
+ * Quota du forfait atteint (402 Payment Required). Les détails portent le forfait courant et la
+ * limite franchie afin que l'interface propose une montée en gamme ciblée.
+ */
+export class QuotaExceededError extends AppError {
+  constructor(message = 'Le quota de votre forfait est atteint.', details: ErrorDetails = {}) {
+    super(message, 'QUOTA_EXCEEDED', 402, details);
+  }
+}
+
 /** Accès refusé — droits insuffisants (403). */
 export class ForbiddenError extends AppError {
   constructor(message = 'Accès refusé.', details: ErrorDetails = {}) {

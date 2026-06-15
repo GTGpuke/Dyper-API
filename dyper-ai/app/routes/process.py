@@ -15,6 +15,7 @@ from app.config import settings
 from app.data.open_vocab import build_vocabulary
 from app.schemas.request import ProcessRequest
 from app.schemas.response import (
+    DetectedObject,
     FrameDetections,
     ProcessResponse,
     Scene,
@@ -25,7 +26,8 @@ from app.services import audio as audio_service
 from app.services import description as desc_service
 from app.services import vision_llm
 from app.services.detector import build_response, detect, extract_objects
-from app.services.fusion import merge_detections
+from app.services.fusion import filter_border_detections, mark_priority, merge_detections
+from app.services.scene_cut import SceneCutDetector
 from app.services.tracker import ObjectTracker
 from app.utils.auth import verify_internal_key
 from app.utils.image import decode_base64, resize_for_model, to_thumbnail_base64
@@ -66,14 +68,52 @@ def fill_track_gaps(frames: list[FrameDetections], max_gap: int) -> list[Timelin
     ]
 
 
+def drop_transient_tracks(
+    frames: list[FrameDetections],
+    min_frames: int,
+    mirrors: list[list[DetectedObject]] | None = None,
+) -> None:
+    """Écarte les détections des pistes trop fugaces (vues sur trop peu de frames de la séquence).
+
+    Une hallucination du vocabulaire ouvert (« birdbath », « necklace »…) ou un label parasite
+    d'une seule frame n'apparaît que sur une poignée de frames éparses : suivi, il forme une piste
+    très courte qu'un vrai objet — présent au moins quelques dixièmes de seconde — ne produit pas.
+    On retire donc ces pistes des boîtes par frame ET des listes miroir fournies (objets agrégés,
+    qui partagent les mêmes instances mais pas le même conteneur de liste). Une piste présente sur
+    toute la séquence analysée (clip très court) n'est jamais filtrée. Les objets non suivis (sans
+    trackId) sont toujours conservés. `min_frames <= 1` désactive le filtre. En place.
+    """
+    if min_frames <= 1:
+        return
+    total = len(frames)
+    counts: dict[int, int] = {}
+    for frame in frames:
+        for obj in frame.objects:
+            if obj.trackId is not None:
+                counts[obj.trackId] = counts.get(obj.trackId, 0) + 1
+    # Fugace = vue sur peu de frames ET absente d'au moins une : une piste présente sur TOUTE la
+    # séquence analysée (cas d'un clip très court) n'est pas un artefact et reste conservée.
+    transient = {
+        track_id for track_id, count in counts.items() if count < min_frames and count < total
+    }
+    if not transient:
+        return
+    for frame in frames:
+        frame.objects[:] = [obj for obj in frame.objects if obj.trackId not in transient]
+    for objects in mirrors or []:
+        objects[:] = [obj for obj in objects if obj.trackId not in transient]
+
+
 def stabilize_track_labels(frames: list[FrameDetections]) -> None:
     """Assigne à chaque piste son label le plus probable et réécrit toutes ses détections.
 
     Une même piste peut être étiquetée différemment selon la frame (« car », puis « truck », puis
-    « car ») alors qu'il s'agit du même objet : on retient le label dominant — vote pondéré par la
-    confiance sur toute la durée de vie de la piste — ce qui supprime ce scintillement et fiabilise
-    aussi le comblement des trous (clé de piste cohérente). Modification en place des objets
-    (partagés avec les réponses par frame et l'agrégat vidéo).
+    « car ») alors qu'il s'agit du même objet : on retient le label dominant — vote au NOMBRE de
+    frames, la confiance ne servant qu'à départager les ex æquo. Compter les frames (et non la somme
+    des confiances) empêche un label parasite bref mais très confiant de détourner l'identité d'une
+    piste : un chat flou sur un canapé net détecté « couch » sur quelques frames reste « cat » s'il
+    l'a été sur davantage de frames. Supprime le scintillement et fiabilise le comblement des trous
+    (clé de piste cohérente). Modification en place (objets partagés avec les réponses par frame).
     """
     votes: dict[int, dict[str, float]] = {}
     for frame in frames:
@@ -81,7 +121,8 @@ def stabilize_track_labels(frames: list[FrameDetections]) -> None:
             if obj.trackId is None:
                 continue
             label_votes = votes.setdefault(obj.trackId, {})
-            label_votes[obj.label] = label_votes.get(obj.label, 0.0) + obj.confidence
+            # Chaque frame compte 1 ; la confiance (≤ 1) n'ajoute qu'un epsilon de départage.
+            label_votes[obj.label] = label_votes.get(obj.label, 0.0) + 1.0 + obj.confidence * 0.001
 
     best_label = {
         track_id: max(label_votes.items(), key=lambda kv: kv[1])[0]
@@ -137,7 +178,7 @@ def build_detection_summary(
     samples: dict[int, int] = {}
     for frame in frames:
         for obj in frame.objects:
-            if obj.trackId is None or obj.boundingBox is None:
+            if obj.trackId is None or obj.boundingBox is None or not obj.priority:
                 continue
             tid = obj.trackId
             box = obj.boundingBox
@@ -212,7 +253,7 @@ def _aggregate_video_responses(
         raise ValueError("Aucune réponse à agréger.")
 
     best_conf: dict[str, float] = {}
-    best_obj: dict = {}
+    best_obj: dict[str, DetectedObject] = {}
     for resp in responses:
         for obj in resp.visualization.objects:
             if obj.label not in best_conf or obj.confidence > best_conf[obj.label]:
@@ -280,15 +321,21 @@ async def process(
             # Couverture maximale : COCO (précis sur ses 80 classes) ET le détecteur à
             # vocabulaire ouvert (concepts arbitraires) sont exécutés, puis leurs boîtes sont
             # fusionnées (une seule par objet, COCO prioritaire). La vision « décrit puis
-            # ancre » : ses éléments enrichissent le vocabulaire ouvert (en plus de la base).
+            # ancre » : ses éléments forment le vocabulaire ouvert (la base LVIS reste
+            # optionnelle, cf. OPEN_VOCAB_INCLUDE_BASE).
             world = getattr(request.app.state, "world", None)
             vision = await vision_llm.describe_and_extract([image], body.lang, body.prompt)
 
             coco_objects = extract_objects(
                 runner.predict(image, conf_threshold=settings.DISPLAY_MIN_CONFIDENCE)
             )
-            if world is not None and world.is_ready():
-                vocabulary = build_vocabulary(list(vision.elements) if vision else [])
+            world_ready = world is not None and world.is_ready()
+            vocabulary = (
+                build_vocabulary(list(vision.elements) if vision else []) if world_ready else []
+            )
+            # World n'est fusionné que s'il a un vocabulaire à chercher : sans base LVIS, un
+            # vocabulaire vide (aucun élément vision) revient à COCO seul.
+            if world_ready and world is not None and vocabulary:
                 world_objects = extract_objects(world.detect_classes(image, vocabulary))
                 objects = merge_detections(
                     coco_objects, world_objects, settings.MERGE_IOU_THRESHOLD
@@ -297,6 +344,11 @@ async def process(
             else:
                 objects = coco_objects
                 model_label = runner.model_name
+
+            # Les détections sous le seuil (vocabulaire ouvert) sont conservées mais marquées
+            # non prioritaires : l'affichage les présente décochées par défaut, et le compte
+            # rendu / la scène ne reposent que sur les détections prioritaires.
+            objects = mark_priority(objects, settings.DISPLAY_MIN_CONFIDENCE)
 
             result = build_response(
                 objects, image, body.prompt, body.lang, body.requestId, model_label
@@ -374,13 +426,20 @@ async def process(
                     is_video=True,
                 )
 
-                # Vocabulaire ouvert = base étendue ∪ éléments listés par la vision globale,
-                # dédupliqué : un vocabulaire unique pour toute la vidéo (encodage CLIP mis en
-                # cache, détection cohérente).
+                # Vocabulaire ouvert = éléments listés par la vision globale (et, en option, la base
+                # LVIS — cf. OPEN_VOCAB_INCLUDE_BASE), dédupliqué : un vocabulaire unique pour toute
+                # la vidéo (encodage CLIP mis en cache, détection cohérente).
                 vision_elements: list[str] = list(vision.elements) if vision else []
                 vision_elements = vision_elements[: settings.VIDEO_VOCAB_MAX]
-                use_world = world is not None and world.is_ready()
-                vocabulary = build_vocabulary(vision_elements) if use_world else []
+                world_ready = world is not None and world.is_ready()
+                vocabulary = (
+                    build_vocabulary(vision_elements, include_base=settings.OPEN_VOCAB_INCLUDE_BASE)
+                    if world_ready
+                    else []
+                )
+                # World n'est utilisé que s'il a un vocabulaire à chercher : sans base LVIS, un
+                # vocabulaire vide (aucun élément vision) revient à COCO seul.
+                use_world = world_ready and bool(vocabulary)
                 model_label = (
                     f"{runner.model_name} + {world.model_name}"
                     if use_world and world
@@ -391,13 +450,25 @@ async def process(
                 # identités stables aux détections fusionnées via un coût explicite (mouvement +
                 # position + label + apparence). Cf. app/services/tracker.py.
                 tracker = ObjectTracker()
+                cut_detector = SceneCutDetector(settings.SCENE_CUT_THRESHOLD)
                 frame_responses: list[ProcessResponse] = []
                 frame_detections: list[FrameDetections] = []
                 first_resized: Image.Image | None = None
-                for frame, timestamp in frames:
+                for frame_index, (frame, timestamp) in enumerate(frames):
+                    # Annulation côté client : si la passerelle a fermé la connexion (bouton Stop),
+                    # on interrompt la boucle sans gaspiller de calcul. Vérifié périodiquement
+                    # (toutes les 10 frames) pour ne pas peser sur le débit d'inférence.
+                    if frame_index % 10 == 0 and await request.is_disconnected():
+                        raise HTTPException(
+                            status_code=499, detail="Analyse annulée (client déconnecté)."
+                        )
                     resized = resize_for_model(frame, settings.IMAGE_MAX_DIM)
                     if first_resized is None:
                         first_resized = resized
+                    # Coupure de plan (cut) : on réinitialise le suivi pour ne pas relier des objets
+                    # de clips différents (compilations, montages) — réglable via SCENE_CUT_THRESHOLD.
+                    if cut_detector.is_cut(resized):
+                        tracker.reset()
                     # Détection seule (COCO + vocabulaire ouvert) puis fusion spatiale (une boîte
                     # par objet, COCO prioritaire) ; l'identité est attribuée juste après.
                     coco_objects = extract_objects(
@@ -410,8 +481,16 @@ async def process(
                         )
                     else:
                         fused = coco_objects
+                    # Écarte les détections tronquées par le bord (objet à moitié hors champ →
+                    # label ambigu) avant le suivi — réglable via DETECTION_BORDER_MARGIN (0 = off).
+                    fused = filter_border_detections(
+                        fused, resized.width, resized.height, settings.DETECTION_BORDER_MARGIN
+                    )
                     # Association inter-frames : identités stables dans un espace unique COCO+World.
                     objects = tracker.update(fused, resized)
+                    # Détections sous le seuil conservées mais marquées non prioritaires (décochées
+                    # par défaut à l'affichage ; exclues du compte rendu, de la scène et des tags).
+                    objects = mark_priority(objects, settings.DISPLAY_MIN_CONFIDENCE)
 
                     frame_result = build_response(
                         objects, resized, body.prompt, body.lang, body.requestId, model_label
@@ -431,6 +510,15 @@ async def process(
             finally:
                 if os.path.exists(tmp_path):
                     os.remove(tmp_path)
+
+            # Écarte d'abord les pistes trop fugaces (hallucinations du vocabulaire ouvert, labels
+            # parasites d'une seule frame) : une vraie présence dure plusieurs frames. Filtre les
+            # boîtes par frame ET l'agrégat (réponses par frame, qui partagent les mêmes objets).
+            drop_transient_tracks(
+                frame_detections,
+                settings.VIDEO_MIN_TRACK_FRAMES,
+                mirrors=[resp.visualization.objects for resp in frame_responses],
+            )
 
             # Stabilise le label de chaque piste (label le plus probable sur sa durée de vie) :
             # supprime le scintillement « car/truck/car » sur un même objet suivi, et fiabilise

@@ -20,6 +20,26 @@ const SORTABLE_COLUMNS: Record<string, string> = {
   type: 'type',
 };
 
+// Sélection de champs configurable (style API publique) : `?fields=id,type,description`.
+// Sans paramètre, l'objet est renvoyé intégralement (aucune régression). Les noms inconnus
+// sont ignorés ; `id` est toujours conservé pour garder une réponse exploitable.
+function projectFields(obj: object, fields?: string): object {
+  if (!fields) return obj;
+  const wanted = new Set(
+    fields
+      .split(',')
+      .map((f) => f.trim())
+      .filter(Boolean)
+  );
+  if (wanted.size === 0) return obj;
+  wanted.add('id');
+  const out: Record<string, unknown> = {};
+  for (const [key, value] of Object.entries(obj)) {
+    if (wanted.has(key)) out[key] = value;
+  }
+  return out;
+}
+
 // GET /api/analyses — liste paginée de l'historique des analyses.
 export async function getAllAnalyses(
   request: FastifyRequest<{
@@ -29,6 +49,7 @@ export async function getAllAnalyses(
       type?: string;
       sort_by?: string;
       sort_order?: string;
+      fields?: string;
     };
   }>,
   reply: FastifyReply
@@ -51,12 +72,13 @@ export async function getAllAnalyses(
     offset,
   });
 
-  reply.send({ data: rows, total: count, page, limit });
+  const data = rows.map((row) => projectFields(row.toJSON(), request.query.fields));
+  reply.send({ data, total: count, page, limit });
 }
 
 // GET /api/analyses/:id — détail d'une analyse par son identifiant.
 export async function getAnalysisById(
-  request: FastifyRequest<{ Params: { id: string } }>,
+  request: FastifyRequest<{ Params: { id: string }; Querystring: { fields?: string } }>,
   reply: FastifyReply
 ): Promise<void> {
   // La requête filtre directement sur (id, user_id) : une analyse d'un autre utilisateur
@@ -67,7 +89,7 @@ export async function getAnalysisById(
   if (!analysis) {
     throw new NotFoundError('Analyse introuvable.');
   }
-  reply.send({ data: analysis });
+  reply.send({ data: projectFields(analysis.toJSON(), request.query.fields) });
 }
 
 // GET /api/analyses/:requestId/chat — historique des échanges de chat liés à une analyse.

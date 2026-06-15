@@ -1,20 +1,22 @@
 // Carte d'analyse dans le fil : média annoté (lecteur vidéo ou image), ruban de stats, description,
 // musique identifiée, détails repliables animés, chronologie cliquable, publication au Global.
 import { AnimatePresence, motion } from 'framer-motion'
-import { type ReactNode, useRef, useState } from 'react'
+import { type ReactNode, useMemo, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { useI18n } from '../../contexts/I18nContext'
+import { useAnnotatedVideo } from '../../hooks/useAnnotatedVideo'
+import { cn } from '../../lib/cn'
 import { mediaUrl, videoUrl } from '../../services/api'
 import type { InlineAnalysis } from '../../types'
 import { PublishDialog } from '../global/PublishDialog'
 import { BoundingBoxOverlay } from '../result/BoundingBoxOverlay'
 import { ColorPalette } from '../result/ColorPalette'
-import { MusicBadge } from '../result/MusicBadge'
+import { MusicList } from '../result/MusicList'
 import { ObjectList } from '../result/ObjectList'
+import { TranscriptKaraoke } from '../result/TranscriptKaraoke'
 import { SceneBadge } from '../result/SceneBadge'
 import { TagCloud } from '../result/TagCloud'
 import { VideoPlayer } from '../result/VideoPlayer'
-import { VideoTimeline } from '../result/VideoTimeline'
 import { StatChip } from '../ui/StatChip'
 
 // Icônes (chemins SVG) du ruban de stats.
@@ -42,7 +44,11 @@ export function AnalysisCardMessage({ analysis }: { analysis: InlineAnalysis }) 
   const [hover, setHover] = useState<number | null>(null)
   const [thumbFailed, setThumbFailed] = useState(false)
   const [publishing, setPublishing] = useState(false)
-  const seekRef = useRef<((time: number) => void) | null>(null)
+  const priorityLabels = useMemo(
+    () => new Set(analysis.objects.filter((o) => o.priority !== false).map((o) => o.label)),
+    [analysis.objects]
+  )
+  const av = useAnnotatedVideo(priorityLabels)
   const publishable = analysis.type !== 'prompt'
 
   const thumbnail = analysis.thumbnailUrl ? mediaUrl(analysis.requestId) : null
@@ -61,7 +67,7 @@ export function AnalysisCardMessage({ analysis }: { analysis: InlineAnalysis }) 
           frames={analysis.frames ?? []}
           sourceWidth={analysis.sourceWidth}
           sourceHeight={analysis.sourceHeight}
-          seekRef={seekRef}
+          {...av.player}
         />
       ) : (
         thumbnail &&
@@ -85,115 +91,133 @@ export function AnalysisCardMessage({ analysis }: { analysis: InlineAnalysis }) 
         ))
       )}
 
-      {/* Ruban de stats : un coup d'œil sur ce que le moteur a produit. */}
-      <div className="flex flex-wrap gap-2">
-        <StatChip icon={ICON_OBJECTS} label={t('card.stat.objects')} value={analysis.objects.length} />
-        {hasResolution && (
-          <StatChip
-            icon={ICON_RESOLUTION}
-            label={t('card.stat.resolution')}
-            value={`${analysis.sourceWidth}×${analysis.sourceHeight}`}
-          />
-        )}
-        <StatChip icon={ICON_MODEL} label={t('card.stat.model')} value={analysis.model} />
-      </div>
-
       <p className="text-[15px] leading-relaxed text-ink-700 dark:text-ink-200">
         {analysis.description}
       </p>
 
-      <div className="flex flex-wrap items-center gap-2">
-        <SceneBadge
-          label={analysis.sceneLabel}
-          confidence={analysis.sceneConfidence}
-          indoor={analysis.indoor}
-        />
-        {analysis.music && analysis.music.length > 0 && <MusicBadge music={analysis.music} />}
-      </div>
-
-      {/* Chronologie vidéo — cliquable quand le lecteur est présent (saute au segment). */}
-      {analysis.timeline && analysis.timeline.length > 0 && (
-        <div>
-          <h4 className="eyebrow mb-2">{t('timeline.title')}</h4>
-          <VideoTimeline
-            timeline={analysis.timeline}
-            onSeek={hasPlayer ? (time) => seekRef.current?.(time) : undefined}
-          />
-        </div>
-      )}
-
-      {/* Transcription audio complète (vidéos). */}
-      {analysis.audioTranscript && (
-        <div>
-          <h4 className="eyebrow mb-2">{t('transcript.title')}</h4>
-          <blockquote className="rounded-xl border-l-2 border-brand-400 bg-ink-50 px-3.5 py-2.5 text-sm italic leading-relaxed text-ink-600 dark:bg-ink-800/60 dark:text-ink-300">
-            {analysis.audioTranscript}
-          </blockquote>
-        </div>
-      )}
-
-      {/* Détails repliés par défaut (dépli animé) pour garder le fil compact. */}
-      <AnimatePresence initial={false}>
-        {expanded && (
-          <motion.div
-            key="details"
-            initial={{ height: 0, opacity: 0 }}
-            animate={{ height: 'auto', opacity: 1 }}
-            exit={{ height: 0, opacity: 0 }}
-            transition={{ duration: 0.25, ease: 'easeInOut' }}
-            className="overflow-hidden"
-          >
-            <div className="flex flex-col gap-4 border-t border-ink-100 pt-4 dark:border-ink-800">
-              {analysis.objects.length > 0 && (
-                <div>
-                  <h4 className="eyebrow mb-2">
-                    {t('result.objects')} ({analysis.objects.length})
-                  </h4>
-                  <ObjectList objects={analysis.objects} highlightIndex={hover} onHover={setHover} />
-                </div>
-              )}
-              {analysis.colors.length > 0 && (
-                <div>
-                  <h4 className="eyebrow mb-2">{t('result.colors')}</h4>
-                  <ColorPalette colors={analysis.colors} />
-                </div>
-              )}
-              {analysis.tags.length > 0 && (
-                <div>
-                  <h4 className="eyebrow mb-2">{t('result.tags')}</h4>
-                  <TagCloud tags={analysis.tags} />
-                </div>
-              )}
-            </div>
-          </motion.div>
-        )}
-      </AnimatePresence>
-
-      <div className="flex items-center justify-between gap-3 border-t border-ink-100 pt-3 dark:border-ink-800">
+      {/* Détails de l'analyse : tout sauf le média et la description, replié par défaut. */}
+      <div className="flex flex-col gap-3">
         <button
           type="button"
           onClick={() => setExpanded((v) => !v)}
-          className="text-xs font-medium text-brand-600 hover:underline dark:text-brand-400"
+          aria-expanded={expanded}
+          className="inline-flex items-center gap-1 self-start text-xs font-medium text-brand-600 hover:underline dark:text-brand-400"
         >
           {expanded ? t('chat.details.hide') : t('chat.details.show')}
-        </button>
-        <div className="flex items-center gap-3">
-          {publishable && (
-            <button
-              type="button"
-              onClick={() => setPublishing(true)}
-              className="text-xs font-medium text-violet-600 hover:underline dark:text-violet-300"
-            >
-              {t('publish.action')}
-            </button>
-          )}
-          <Link
-            to={`/analysis/${analysis.id}`}
-            className="text-xs text-ink-400 hover:text-ink-700 hover:underline dark:text-ink-500 dark:hover:text-ink-200"
+          <svg
+            className={cn('h-3.5 w-3.5 transition-transform duration-200', expanded && 'rotate-180')}
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="2.5"
           >
-            {t('chat.openAnalysis')}
-          </Link>
-        </div>
+            <path d="M6 9l6 6 6-6" strokeLinecap="round" strokeLinejoin="round" />
+          </svg>
+        </button>
+
+        <AnimatePresence initial={false}>
+          {expanded && (
+            <motion.div
+              key="details"
+              initial={{ height: 0, opacity: 0 }}
+              animate={{ height: 'auto', opacity: 1 }}
+              exit={{ height: 0, opacity: 0 }}
+              transition={{ duration: 0.25, ease: 'easeInOut' }}
+              className="overflow-hidden"
+            >
+              <div className="flex flex-col gap-4 pt-1">
+                {/* Ruban de stats : un coup d'œil sur ce que le moteur a produit. */}
+                <div className="flex flex-wrap gap-2">
+                  <StatChip icon={ICON_OBJECTS} label={t('card.stat.objects')} value={analysis.objects.length} />
+                  {hasResolution && (
+                    <StatChip
+                      icon={ICON_RESOLUTION}
+                      label={t('card.stat.resolution')}
+                      value={`${analysis.sourceWidth}×${analysis.sourceHeight}`}
+                    />
+                  )}
+                  <StatChip icon={ICON_MODEL} label={t('card.stat.model')} value={analysis.model} />
+                </div>
+
+                <SceneBadge
+                  label={analysis.sceneLabel}
+                  confidence={analysis.sceneConfidence}
+                  indoor={analysis.indoor}
+                />
+
+                {/* Objets détectés — en vidéo, chaque objet porte sa chronologie d'apparition
+                    (cliquable, tête de lecture) ; en image, sa barre de confiance (survol croisé). */}
+                {analysis.objects.length > 0 && (
+                  <div>
+                    <h4 className="eyebrow mb-2">
+                      {t('result.objects')} ({analysis.objects.length})
+                    </h4>
+                    <ObjectList
+                      objects={analysis.objects}
+                      timeline={analysis.timeline}
+                      onSeek={hasPlayer ? av.seek : undefined}
+                      {...av.timeline}
+                      highlightIndex={hover}
+                      onHover={setHover}
+                    />
+                  </div>
+                )}
+
+                {/* Transcription audio complète (vidéos). */}
+                {analysis.audioTranscript && (
+                  <div>
+                    <h4 className="eyebrow mb-2">{t('transcript.title')}</h4>
+                    <TranscriptKaraoke
+                      text={analysis.audioTranscript}
+                      segments={analysis.transcriptSegments}
+                      timeRef={hasPlayer ? av.timeline.timeRef : undefined}
+                      playing={av.timeline.playing}
+                    />
+                  </div>
+                )}
+
+                {/* Musique identifiée (liste cliquable vers la page d'écoute). */}
+                {analysis.music && analysis.music.length > 0 && (
+                  <div>
+                    <h4 className="eyebrow mb-2">{t('music.title')}</h4>
+                    <MusicList music={analysis.music} />
+                  </div>
+                )}
+
+                {analysis.colors.length > 0 && (
+                  <div>
+                    <h4 className="eyebrow mb-2">{t('result.colors')}</h4>
+                    <ColorPalette colors={analysis.colors} />
+                  </div>
+                )}
+                {analysis.tags.length > 0 && (
+                  <div>
+                    <h4 className="eyebrow mb-2">{t('result.tags')}</h4>
+                    <TagCloud tags={analysis.tags} />
+                  </div>
+                )}
+              </div>
+            </motion.div>
+          )}
+        </AnimatePresence>
+      </div>
+
+      <div className="flex items-center justify-end gap-3 border-t border-ink-100 pt-3 dark:border-ink-800">
+        {publishable && (
+          <button
+            type="button"
+            onClick={() => setPublishing(true)}
+            className="text-xs font-medium text-violet-600 hover:underline dark:text-violet-300"
+          >
+            {t('publish.action')}
+          </button>
+        )}
+        <Link
+          to={`/analysis/${analysis.id}`}
+          className="text-xs text-ink-400 hover:text-ink-700 hover:underline dark:text-ink-500 dark:hover:text-ink-200"
+        >
+          {t('chat.openAnalysis')}
+        </Link>
       </div>
 
       {publishable && (

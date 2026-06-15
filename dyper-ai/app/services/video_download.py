@@ -92,10 +92,13 @@ def _download_sync(url: str) -> str:
     height = settings.VIDEO_URL_MAX_HEIGHT
     options = {
         **_base_options(),
-        # mp4 progressif de préférence (pas de fusion), sinon meilleure piste ≤ plafond.
+        # mp4 H.264 (avc1) de préférence — lisible nativement par tous les navigateurs
+        # (un mp4 VP9/AV1 se télécharge et s'analyse mais refuse de se lire dans <video>) ;
+        # replis successifs jusqu'à la meilleure piste ≤ plafond de résolution.
         "format": (
+            f"best[ext=mp4][vcodec^=avc1][height<={height}]/"
+            f"bestvideo[ext=mp4][vcodec^=avc1][height<={height}]+bestaudio[ext=m4a]/"
             f"best[ext=mp4][height<={height}]/"
-            f"bestvideo[ext=mp4][height<={height}]+bestaudio[ext=m4a]/"
             f"best[height<={height}]/best"
         ),
         "merge_output_format": "mp4",

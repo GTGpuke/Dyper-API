@@ -4,8 +4,12 @@ import type { AuthUser } from './index';
 
 declare module 'fastify' {
   interface FastifyRequest {
-    // Renseigné par le middleware verifyAuth après vérification du JWT.
+    // Renseigné par l'authentification après vérification du JWT ou de la clé API.
     authUser?: AuthUser;
+    // Mode d'authentification de la requête : session web (cookie) ou clé API (développeur).
+    authVia?: 'session' | 'apikey';
+    // Identifiant de la clé API utilisée (si authVia === 'apikey').
+    apiKeyId?: string;
   }
 }
 

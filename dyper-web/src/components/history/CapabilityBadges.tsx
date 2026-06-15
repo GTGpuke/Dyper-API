@@ -1,4 +1,4 @@
-// Puces de capacités d'une analyse (chapitres, transcription, musique, objets), partagées
+// Puces de capacités d'une analyse (transcription, musique, objets), partagées
 // par la carte (mode étiqueté) et la ligne de liste (mode compact, icône seule).
 import { useI18n } from '../../contexts/I18nContext'
 import { cn } from '../../lib/cn'

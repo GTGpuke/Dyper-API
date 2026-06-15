@@ -1,6 +1,7 @@
 // Définit les associations entre modèles et expose les modèles initialisés.
 // Importé par server.ts avant le démarrage afin que toutes les définitions soient enregistrées.
 import Analysis from './Analysis';
+import ApiKey from './ApiKey';
 import ChatExchange from './ChatExchange';
 import Conversation from './Conversation';
 import Message from './Message';
@@ -31,6 +32,10 @@ User.hasMany(Analysis, { foreignKey: 'user_id', constraints: false, as: 'analyse
 Analysis.belongsTo(User, { foreignKey: 'user_id', constraints: false, as: 'user' });
 User.hasMany(ChatExchange, { foreignKey: 'user_id', constraints: false, as: 'chatExchanges' });
 ChatExchange.belongsTo(User, { foreignKey: 'user_id', constraints: false, as: 'user' });
+
+// Clés d'API d'un utilisateur (accès programmatique), lien souple sans FK stricte.
+User.hasMany(ApiKey, { foreignKey: 'user_id', constraints: false, as: 'apiKeys' });
+ApiKey.belongsTo(User, { foreignKey: 'user_id', constraints: false, as: 'user' });
 
 // Conversations et messages (fil de discussion façon claude.ai), liens souples sans FK stricte.
 User.hasMany(Conversation, { foreignKey: 'user_id', constraints: false, as: 'conversations' });
@@ -86,6 +91,7 @@ Publication.hasMany(PublicationVote, {
 
 export {
   Analysis,
+  ApiKey,
   ChatExchange,
   Conversation,
   Message,

@@ -43,7 +43,7 @@ export const API_SECTIONS: ApiSection[] = [
       {
         id: 'register',
         method: 'POST',
-        path: '/api/auth/register',
+        path: '/api/v1/auth/register',
         descKey: 'docs.ep.register.desc',
         auth: 'appKey',
         paramsKind: 'body',
@@ -60,7 +60,7 @@ export const API_SECTIONS: ApiSection[] = [
       {
         id: 'login',
         method: 'POST',
-        path: '/api/auth/login',
+        path: '/api/v1/auth/login',
         descKey: 'docs.ep.login.desc',
         auth: 'appKey',
         paramsKind: 'body',
@@ -73,7 +73,7 @@ export const API_SECTIONS: ApiSection[] = [
       {
         id: 'logout',
         method: 'POST',
-        path: '/api/auth/logout',
+        path: '/api/v1/auth/logout',
         descKey: 'docs.ep.logout.desc',
         auth: 'appKey',
         responseExample: json({ success: true }),
@@ -87,7 +87,7 @@ export const API_SECTIONS: ApiSection[] = [
       {
         id: 'analyzeFile',
         method: 'POST',
-        path: '/api/analyze',
+        path: '/api/v1/analyze',
         descKey: 'docs.ep.analyzeFile.desc',
         auth: 'appKey+session',
         paramsKind: 'multipart',
@@ -121,7 +121,7 @@ export const API_SECTIONS: ApiSection[] = [
       {
         id: 'analyzeUrl',
         method: 'POST',
-        path: '/api/analyze/url',
+        path: '/api/v1/analyze/url',
         descKey: 'docs.ep.analyzeUrl.desc',
         auth: 'appKey+session',
         paramsKind: 'body',
@@ -135,7 +135,7 @@ export const API_SECTIONS: ApiSection[] = [
       {
         id: 'analyzePrompt',
         method: 'POST',
-        path: '/api/analyze/prompt',
+        path: '/api/v1/analyze/prompt',
         descKey: 'docs.ep.analyzePrompt.desc',
         auth: 'appKey+session',
         paramsKind: 'body',
@@ -155,7 +155,7 @@ export const API_SECTIONS: ApiSection[] = [
       {
         id: 'listConversations',
         method: 'GET',
-        path: '/api/conversations',
+        path: '/api/v1/conversations',
         descKey: 'docs.ep.listConversations.desc',
         auth: 'appKey+session',
         paramsKind: 'query',
@@ -172,7 +172,7 @@ export const API_SECTIONS: ApiSection[] = [
       {
         id: 'createConversation',
         method: 'POST',
-        path: '/api/conversations',
+        path: '/api/v1/conversations',
         descKey: 'docs.ep.createConversation.desc',
         auth: 'appKey+session',
         paramsKind: 'body',
@@ -182,7 +182,7 @@ export const API_SECTIONS: ApiSection[] = [
       {
         id: 'getConversation',
         method: 'GET',
-        path: '/api/conversations/:id',
+        path: '/api/v1/conversations/:id',
         descKey: 'docs.ep.getConversation.desc',
         auth: 'appKey+session',
         responseExample: json({
@@ -195,7 +195,7 @@ export const API_SECTIONS: ApiSection[] = [
               role: 'assistant',
               kind: 'analysis',
               seq: 2,
-              analysis: { requestId: 'uuid', description: '…', thumbnailUrl: '/api/media/uuid' },
+              analysis: { requestId: 'uuid', description: '…', thumbnailUrl: '/api/v1/media/uuid' },
             },
           ],
         }),
@@ -203,7 +203,7 @@ export const API_SECTIONS: ApiSection[] = [
       {
         id: 'renameConversation',
         method: 'PATCH',
-        path: '/api/conversations/:id',
+        path: '/api/v1/conversations/:id',
         descKey: 'docs.ep.renameConversation.desc',
         auth: 'appKey+session',
         paramsKind: 'body',
@@ -213,7 +213,7 @@ export const API_SECTIONS: ApiSection[] = [
       {
         id: 'deleteConversation',
         method: 'DELETE',
-        path: '/api/conversations/:id',
+        path: '/api/v1/conversations/:id',
         descKey: 'docs.ep.deleteConversation.desc',
         auth: 'appKey+session',
         responseExample: json({ success: true }),
@@ -221,7 +221,7 @@ export const API_SECTIONS: ApiSection[] = [
       {
         id: 'postMessage',
         method: 'POST',
-        path: '/api/conversations/:id/messages',
+        path: '/api/v1/conversations/:id/messages',
         descKey: 'docs.ep.postMessage.desc',
         auth: 'appKey+session',
         paramsKind: 'multipart',
@@ -240,7 +240,7 @@ export const API_SECTIONS: ApiSection[] = [
       {
         id: 'streamMessage',
         method: 'POST',
-        path: '/api/conversations/:id/messages/stream',
+        path: '/api/v1/conversations/:id/messages/stream',
         descKey: 'docs.ep.streamMessage.desc',
         auth: 'appKey+session',
         paramsKind: 'body',
@@ -267,7 +267,7 @@ export const API_SECTIONS: ApiSection[] = [
       {
         id: 'listAnalyses',
         method: 'GET',
-        path: '/api/analyses',
+        path: '/api/v1/analyses',
         descKey: 'docs.ep.listAnalyses.desc',
         auth: 'appKey+session',
         paramsKind: 'query',
@@ -283,7 +283,7 @@ export const API_SECTIONS: ApiSection[] = [
       {
         id: 'getAnalysis',
         method: 'GET',
-        path: '/api/analyses/:id',
+        path: '/api/v1/analyses/:id',
         descKey: 'docs.ep.getAnalysis.desc',
         auth: 'appKey+session',
         responseExample: json({ data: { id: 'uuid', description: '…', timeline: '…' } }),
@@ -291,7 +291,7 @@ export const API_SECTIONS: ApiSection[] = [
       {
         id: 'getChatHistory',
         method: 'GET',
-        path: '/api/analyses/:requestId/chat',
+        path: '/api/v1/analyses/:requestId/chat',
         descKey: 'docs.ep.getChatHistory.desc',
         auth: 'appKey+session',
         responseExample: json({ data: [{ question: '…', answer: '…' }], total: 1 }),
@@ -306,7 +306,7 @@ export const API_SECTIONS: ApiSection[] = [
       {
         id: 'getMedia',
         method: 'GET',
-        path: '/api/media/:requestId',
+        path: '/api/v1/media/:requestId',
         descKey: 'docs.ep.getMedia.desc',
         auth: 'session',
         responseExample: 'image/jpeg (binaire)',
@@ -314,7 +314,7 @@ export const API_SECTIONS: ApiSection[] = [
       {
         id: 'getMediaVideo',
         method: 'GET',
-        path: '/api/media/:requestId/video',
+        path: '/api/v1/media/:requestId/video',
         descKey: 'docs.ep.getMediaVideo.desc',
         auth: 'session',
         responseExample: 'video/mp4 (binaire — 206 Partial Content avec un en-tête Range)',
@@ -328,7 +328,7 @@ export const API_SECTIONS: ApiSection[] = [
       {
         id: 'getMe',
         method: 'GET',
-        path: '/api/me',
+        path: '/api/v1/me',
         descKey: 'docs.ep.getMe.desc',
         auth: 'appKey+session',
         responseExample: json({
@@ -340,7 +340,7 @@ export const API_SECTIONS: ApiSection[] = [
       {
         id: 'updateSettings',
         method: 'PUT',
-        path: '/api/me/settings',
+        path: '/api/v1/me/settings',
         descKey: 'docs.ep.updateSettings.desc',
         auth: 'appKey+session',
         paramsKind: 'body',
@@ -353,7 +353,7 @@ export const API_SECTIONS: ApiSection[] = [
       {
         id: 'exportData',
         method: 'GET',
-        path: '/api/me/export',
+        path: '/api/v1/me/export',
         descKey: 'docs.ep.exportData.desc',
         auth: 'appKey+session',
         responseExample: json({ user: '…', analyses: ['…'], conversations: ['…'] }),
@@ -361,7 +361,7 @@ export const API_SECTIONS: ApiSection[] = [
       {
         id: 'purgeHistory',
         method: 'DELETE',
-        path: '/api/me/history',
+        path: '/api/v1/me/history',
         descKey: 'docs.ep.purgeHistory.desc',
         auth: 'appKey+session',
         paramsKind: 'body',
@@ -373,12 +373,84 @@ export const API_SECTIONS: ApiSection[] = [
       {
         id: 'deleteAccount',
         method: 'DELETE',
-        path: '/api/me/account',
+        path: '/api/v1/me/account',
         descKey: 'docs.ep.deleteAccount.desc',
         auth: 'appKey+session',
         paramsKind: 'body',
         params: [{ name: 'password', type: 'string', required: true, descKey: 'docs.p.password' }],
         responseExample: json({ success: true }),
+      },
+    ],
+  },
+  {
+    id: 'subscription',
+    titleKey: 'docs.section.subscription.title',
+    introKey: 'docs.subscription.intro',
+    endpoints: [
+      {
+        id: 'getPlan',
+        method: 'GET',
+        path: '/api/v1/me/plan',
+        descKey: 'docs.ep.getPlan.desc',
+        auth: 'appKey+session',
+        responseExample: json({
+          success: true,
+          plan: 'free',
+          limits: {
+            monthlyAnalyses: 40,
+            monthlyVideoMinutes: 10,
+            maxImageMb: 10,
+            maxVideoMb: 30,
+            queuePriority: 0,
+          },
+        }),
+      },
+      {
+        id: 'getUsage',
+        method: 'GET',
+        path: '/api/v1/me/usage',
+        descKey: 'docs.ep.getUsage.desc',
+        auth: 'appKey+session',
+        responseExample: json({
+          success: true,
+          plan: 'free',
+          limits: { monthlyAnalyses: 40, monthlyVideoMinutes: 10 },
+          usage: { analyses: 7, videoMinutes: 2.5 },
+          periodStart: '2026-06-01T00:00:00.000Z',
+          resetsAt: '2026-07-01T00:00:00.000Z',
+        }),
+      },
+      {
+        id: 'checkout',
+        method: 'POST',
+        path: '/api/v1/me/checkout',
+        descKey: 'docs.ep.checkout.desc',
+        auth: 'appKey+session',
+        paramsKind: 'body',
+        params: [
+          { name: 'plan', type: '"free" | "pro" | "studio"', required: true, descKey: 'docs.p.plan' },
+        ],
+        responseExample: json({
+          success: true,
+          plan: 'pro',
+          limits: { monthlyAnalyses: 400, monthlyVideoMinutes: 120 },
+          receipt: { id: 'dyper_demo_uuid', paid: true, previousPlan: 'free' },
+        }),
+      },
+      {
+        id: 'getCapacity',
+        method: 'GET',
+        path: '/api/v1/me/capacity',
+        descKey: 'docs.ep.getCapacity.desc',
+        auth: 'appKey+session',
+        responseExample: json({
+          success: true,
+          maxConcurrent: 2,
+          active: 1,
+          queued: 0,
+          busy: false,
+          avgAnalysisSeconds: 40,
+        }),
       },
     ],
   },

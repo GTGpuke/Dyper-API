@@ -6,7 +6,7 @@ import { Analysis, ChatExchange } from '../../src/models';
 import aiService from '../../src/services/ai/ai.service';
 import groqService from '../../src/services/chat/groq.service';
 import { connectDatabase } from '../../src/services/db/database.service';
-import type { ProcessAiResponse, ProcessOptions } from '../../src/types';
+import type { MessageView, ProcessAiResponse, ProcessOptions } from '../../src/types';
 import { type AuthedUser, registerAndLogin } from '../helpers/auth.helper';
 import { buildMultipart } from '../helpers/multipart.helper';
 
@@ -82,6 +82,24 @@ async function newConversation(): Promise<string> {
   return res.json().conversation.id;
 }
 
+// L'analyse tourne en tâche de fond : on sonde la conversation jusqu'à ce que la carte d'analyse
+// passe de « pending » à « ready » (l'IA est mockée → quelques ms), puis on renvoie les messages.
+async function waitForAnalysis(id: string, timeoutMs = 5000): Promise<MessageView[]> {
+  const start = Date.now();
+  while (Date.now() - start < timeoutMs) {
+    const res = await app.inject({
+      method: 'GET',
+      url: `/api/conversations/${id}`,
+      headers: auth.headers,
+    });
+    const messages = res.json().messages as MessageView[];
+    const assistant = messages.find((m) => m.role === 'assistant');
+    if (assistant && assistant.status !== 'pending') return messages;
+    await new Promise((r) => setTimeout(r, 25));
+  }
+  throw new Error('Analyse non terminée dans le délai imparti.');
+}
+
 describe('Envoi de messages (/api/conversations/:id/messages)', () => {
   it('fichier joint → 2 messages, carte inlinée, miniature écrite sur disque', async () => {
     const id = await newConversation();
@@ -99,26 +117,33 @@ describe('Envoi de messages (/api/conversations/:id/messages)', () => {
     expect(res.statusCode).toBe(201);
     const body = res.json();
 
+    // Réponse immédiate : carte d'analyse en « pending » (traitement en tâche de fond).
     expect(body.messages).toHaveLength(2);
-    const [userMsg, assistantMsg] = body.messages;
-    expect(userMsg.role).toBe('user');
-    expect(userMsg.attachmentName).toBe('photo.png');
-    expect(assistantMsg.kind).toBe('analysis');
-    expect(assistantMsg.analysis.description).toContain('voiture');
-    expect(assistantMsg.analysis.objects).toHaveLength(2);
-    expect(assistantMsg.analysis.timeline).toHaveLength(2);
-    expect(assistantMsg.analysis.sourceWidth).toBe(640);
-    expect(assistantMsg.analysis.thumbnailUrl).toMatch(/^\/api\/media\//);
-    // Champs du lecteur annoté et de la reconnaissance musicale, inlinés dans la carte.
-    expect(assistantMsg.analysis.frames).toHaveLength(1);
-    expect(assistantMsg.analysis.frames[0].objects[0].trackId).toBe(1);
-    expect(assistantMsg.analysis.music[0].title).toBe('Around the World');
-    // Image (pas de vidéo conservée) : videoUrl absent.
-    expect(assistantMsg.analysis.videoUrl).toBeNull();
+    expect(body.messages[0].role).toBe('user');
+    expect(body.messages[0].attachmentName).toBe('photo.png');
+    expect(body.messages[1].kind).toBe('analysis');
+    expect(body.messages[1].status).toBe('pending');
+    expect(body.messages[1].analysis).toBeNull();
+    // Auto-titre : repris du texte du premier message (immédiat).
+    expect(body.conversation.title).toBe('Que vois-tu ?');
+
+    // Une fois la tâche de fond terminée : carte « ready » avec l'analyse inlinée.
+    const messages = await waitForAnalysis(id);
+    const assistantMsg = messages[1];
+    expect(assistantMsg.status).toBe('ready');
+    expect(assistantMsg.analysis?.description).toContain('voiture');
+    expect(assistantMsg.analysis?.objects).toHaveLength(2);
+    expect(assistantMsg.analysis?.timeline).toHaveLength(2);
+    expect(assistantMsg.analysis?.sourceWidth).toBe(640);
+    expect(assistantMsg.analysis?.thumbnailUrl).toMatch(/^\/api\/media\//);
+    expect(assistantMsg.analysis?.frames).toHaveLength(1);
+    expect(assistantMsg.analysis?.frames?.[0].objects[0].trackId).toBe(1);
+    expect(assistantMsg.analysis?.music?.[0].title).toBe('Around the World');
+    expect(assistantMsg.analysis?.videoUrl).toBeNull();
 
     // La miniature est réellement écrite dans MEDIA_DIR.
     const row = await Analysis.findOne({
-      where: { request_id: assistantMsg.analysis.requestId },
+      where: { request_id: assistantMsg.analysis?.requestId },
     });
     expect(row?.thumbnail_path).toBeTruthy();
     const onDisk = path.join(process.env.MEDIA_DIR as string, row?.thumbnail_path as string);
@@ -151,20 +176,22 @@ describe('Envoi de messages (/api/conversations/:id/messages)', () => {
       payload: { text: 'une plage au coucher du soleil' },
     });
     expect(res.statusCode).toBe(201);
-    const assistant = res.json().messages[1];
-    expect(assistant.kind).toBe('analysis');
-    expect(assistant.analysis.type).toBe('prompt');
+    expect(res.json().messages[1].status).toBe('pending');
+    const messages = await waitForAnalysis(id);
+    expect(messages[1].kind).toBe('analysis');
+    expect(messages[1].analysis?.type).toBe('prompt');
   });
 
   it('texte seul avec analyse antérieure → chat non-streamé + ChatExchange', async () => {
     const id = await newConversation();
-    // 1) Crée la carte d'analyse.
+    // 1) Crée la carte d'analyse (tâche de fond) puis attend qu'elle soit prête.
     await app.inject({
       method: 'POST',
       url: `/api/conversations/${id}/messages`,
       headers: auth.headers,
       payload: { url: 'https://example.com/cat.jpg' },
     });
+    await waitForAnalysis(id);
     // 2) Question de suivi : le contexte est reconstruit server-side.
     const chatSpy = jest.spyOn(groqService, 'chatWithResult').mockResolvedValue({
       answer: 'Il y a une personne et une voiture.',
@@ -216,15 +243,9 @@ describe('Envoi de messages (/api/conversations/:id/messages)', () => {
       headers: auth.headers,
       payload: { url: 'https://example.com/a.jpg', text: 'analyse ça' },
     });
-    const res = await app.inject({
-      method: 'GET',
-      url: `/api/conversations/${id}`,
-      headers: auth.headers,
-    });
-    expect(res.statusCode).toBe(200);
-    const { messages } = res.json();
+    const messages = await waitForAnalysis(id);
     expect(messages).toHaveLength(2);
-    expect(messages.map((m: { seq: number }) => m.seq)).toEqual([1, 2]);
+    expect(messages.map((m) => m.seq)).toEqual([1, 2]);
     expect(messages[1].analysis).not.toBeNull();
   });
 
@@ -246,13 +267,16 @@ describe('Envoi de messages (/api/conversations/:id/messages)', () => {
     });
     expect(res.statusCode).toBe(201);
 
+    // La vidéo téléchargée est stockée et exposée au lecteur annoté (après la tâche de fond).
+    const messages = await waitForAnalysis(id);
+    const analysis = messages[1].analysis;
+    if (!analysis) throw new Error('Analyse absente.');
+
     // La passerelle a routé l'URL vers l'analyse vidéo (videoUrl, pas imageUrl).
     const opts = processSpy.mock.calls[0][0];
     expect(opts.videoUrl).toBe('https://www.youtube.com/watch?v=dQw4w9WgXcQ');
     expect(opts.imageUrl).toBeUndefined();
 
-    // La vidéo téléchargée est stockée et exposée au lecteur annoté.
-    const analysis = res.json().messages[1].analysis;
     expect(analysis.type).toBe('video');
     expect(analysis.videoUrl).toBe(`/api/media/${analysis.requestId}/video`);
     const onDisk = path.join(process.env.MEDIA_DIR as string, `${analysis.requestId}.mp4`);
@@ -273,10 +297,11 @@ describe('Envoi de messages (/api/conversations/:id/messages)', () => {
       payload: { url: 'https://example.com/photo.jpg' },
     });
     expect(res.statusCode).toBe(201);
+    const messages = await waitForAnalysis(id);
     const opts = processSpy.mock.calls[0][0];
     expect(opts.imageUrl).toBe('https://example.com/photo.jpg');
     expect(opts.videoUrl).toBeUndefined();
-    expect(res.json().messages[1].analysis.type).toBe('image');
+    expect(messages[1].analysis?.type).toBe('image');
   });
 
   it('vidéo jointe → fichier conservé sur disque et videoUrl inliné', async () => {
@@ -291,7 +316,9 @@ describe('Envoi de messages (/api/conversations/:id/messages)', () => {
       payload,
     });
     expect(res.statusCode).toBe(201);
-    const analysis = res.json().messages[1].analysis;
+    const messages = await waitForAnalysis(id);
+    const analysis = messages[1].analysis;
+    if (!analysis) throw new Error('Analyse absente.');
     expect(analysis.videoUrl).toBe(`/api/media/${analysis.requestId}/video`);
     const onDisk = path.join(process.env.MEDIA_DIR as string, `${analysis.requestId}.mp4`);
     expect(fs.existsSync(onDisk)).toBe(true);
@@ -303,13 +330,13 @@ describe('Envoi de messages (/api/conversations/:id/messages)', () => {
     const { payload, contentType } = buildMultipart({
       file: { content: Buffer.from('mp4'), filename: 'cascade.mp4', contentType: 'video/mp4' },
     });
-    const sent = await app.inject({
+    await app.inject({
       method: 'POST',
       url: `/api/conversations/${id}/messages`,
       headers: { ...auth.headers, 'content-type': contentType },
       payload,
     });
-    const requestId = sent.json().messages[1].analysis.requestId;
+    const requestId = (await waitForAnalysis(id))[1].analysis?.requestId as string;
 
     // 2) Question de suivi : crée un échange de chat lié à l'analyse.
     jest.spyOn(groqService, 'chatWithResult').mockResolvedValue({
@@ -342,19 +369,66 @@ describe('Envoi de messages (/api/conversations/:id/messages)', () => {
     expect(fs.existsSync(videoOnDisk)).toBe(false);
   });
 
+  it('analyse en tâche de fond annulable : la carte pending et l’échange sont supprimés', async () => {
+    // L'IA « tourne » jusqu'à l'annulation (respecte le signal d'abandon).
+    jest.restoreAllMocks();
+    jest.spyOn(aiService, 'process').mockImplementation(
+      (opts) =>
+        new Promise((_resolve, reject) => {
+          opts.signal?.addEventListener('abort', () =>
+            reject(new DOMException('Analyse annulée.', 'AbortError'))
+          );
+        })
+    );
+
+    const id = await newConversation();
+    const post = await app.inject({
+      method: 'POST',
+      url: `/api/conversations/${id}/messages`,
+      headers: auth.headers,
+      payload: { text: 'analyse longue' },
+    });
+    expect(post.statusCode).toBe(201);
+    expect(post.json().messages[1].status).toBe('pending');
+
+    // Annulation explicite (bouton Stop).
+    const cancel = await app.inject({
+      method: 'POST',
+      url: `/api/conversations/${id}/cancel`,
+      headers: auth.headers,
+    });
+    expect(cancel.statusCode).toBe(200);
+    expect(cancel.json().cancelled).toBe(true);
+
+    // L'échange (question + carte) disparaît une fois l'abandon traité.
+    const start = Date.now();
+    let messages: MessageView[] = [];
+    while (Date.now() - start < 3000) {
+      const r = await app.inject({
+        method: 'GET',
+        url: `/api/conversations/${id}`,
+        headers: auth.headers,
+      });
+      messages = r.json().messages as MessageView[];
+      if (messages.length === 0) break;
+      await new Promise((res) => setTimeout(res, 25));
+    }
+    expect(messages).toHaveLength(0);
+  });
+
   it('purge totale → conversations supprimées, miniatures et vidéos effacées du disque', async () => {
     const id = await newConversation();
     const { payload, contentType } = buildMultipart({
       file: { content: Buffer.from('mp4'), filename: 'purge.mp4', contentType: 'video/mp4' },
     });
-    const sent = await app.inject({
+    await app.inject({
       method: 'POST',
       url: `/api/conversations/${id}/messages`,
       headers: { ...auth.headers, 'content-type': contentType },
       payload,
     });
     const row = await Analysis.findOne({
-      where: { request_id: sent.json().messages[1].analysis.requestId },
+      where: { request_id: (await waitForAnalysis(id))[1].analysis?.requestId },
     });
     const thumbOnDisk = path.join(process.env.MEDIA_DIR as string, row?.thumbnail_path as string);
     const videoOnDisk = path.join(process.env.MEDIA_DIR as string, row?.video_path as string);

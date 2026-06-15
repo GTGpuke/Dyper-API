@@ -12,6 +12,8 @@ import Fastify, {
   type FastifyReply,
   type FastifyServerOptions,
 } from 'fastify';
+import { v4 as uuidv4 } from 'uuid';
+import { authenticate, requireSession } from './middlewares/authenticate';
 import { verifyAppKey } from './middlewares/verifyAppKey';
 import { verifyAuth } from './middlewares/verifyAuth';
 import { analysisRoutes } from './routes/analysis/analysis.routes';
@@ -52,7 +54,17 @@ export async function buildApp(opts: FastifyServerOptions = {}): Promise<Fastify
   const app = Fastify({
     logger: false,
     ajv: { customOptions: { strict: false } },
+    // Traçabilité de bout en bout : on réutilise un X-Request-Id fourni par l'appelant, sinon on
+    // en génère un (UUID). Cet identifiant est renvoyé dans chaque réponse et propagé à dyper-ai.
+    requestIdHeader: 'x-request-id',
+    genReqId: () => uuidv4(),
     ...opts,
+  });
+
+  // Renvoie l'identifiant de requête sur chaque réponse (succès comme erreur) — standard d'API
+  // publique pour le support et le débogage corrélé entre services.
+  app.addHook('onSend', async (request, reply) => {
+    if (!reply.getHeader('X-Request-Id')) reply.header('X-Request-Id', String(request.id));
   });
 
   // Tolère un corps JSON vide (POST sans payload, ex. logout) au lieu de lever une 400.
@@ -143,12 +155,30 @@ export async function buildApp(opts: FastifyServerOptions = {}): Promise<Fastify
     openapi: {
       info: {
         title: 'Dyper API',
-        description: 'Passerelle de reconnaissance visuelle multimodale (image / vidéo / prompt).',
-        version: '2.0.0',
+        description: [
+          'Passerelle de reconnaissance visuelle multimodale (image / vidéo / prompt).',
+          '',
+          '**Versionnement** — la version courante est exposée sous `/api/v1`. Le préfixe `/api`',
+          'reste pris en charge comme alias de compatibilité (équivalent à la dernière version).',
+          '',
+          '**Authentification** — chaque requête `/api` exige le header `X-App-Key` ; les routes de',
+          'compte exigent en plus une session (cookie httpOnly `dyper_token`).',
+          '',
+          '**Traçabilité** — toute réponse renvoie un header `X-Request-Id`. Fournissez le vôtre pour',
+          'corréler vos journaux ; sinon un identifiant est généré.',
+          '',
+          '**Limitation de débit** — les réponses portent les en-têtes `x-ratelimit-limit`,',
+          '`x-ratelimit-remaining` et `x-ratelimit-reset`. Un dépassement renvoie un code 429.',
+        ].join('\n'),
+        version: '2.1.0',
+        contact: { name: 'Dyper', url: 'https://dyper.app' },
+        license: { name: 'Propriétaire' },
       },
+      servers: [{ url: '/api/v1', description: 'Version courante' }],
       components: {
         securitySchemes: {
           appKey: { type: 'apiKey', name: 'X-App-Key', in: 'header' },
+          sessionCookie: { type: 'apiKey', name: 'dyper_token', in: 'cookie' },
         },
       },
       security: [{ appKey: [] }],
@@ -202,23 +232,41 @@ export async function buildApp(opts: FastifyServerOptions = {}): Promise<Fastify
       },
     });
 
-    apiApp.addHook('onRequest', verifyAppKey);
+    // Montage de l'arborescence API sous un préfixe de base donné. La version courante « /api/v1 »
+    // est canonique ; « /api » reste un alias de compatibilité (aucune régression pour les clients
+    // existants, dont le frontend). Les deux pointent vers les mêmes contrôleurs.
+    const mountApiTree = async (base: string): Promise<void> => {
+      // Routes d'authentification : first-party (clé applicative seule, sans session ni clé API),
+      // car register/login servent justement à obtenir une session web.
+      await apiApp.register(async (authApp) => {
+        authApp.addHook('onRequest', verifyAppKey);
+        await authApp.register(authRoutes, { prefix: `${base}/auth` });
+      });
 
-    // Routes d'authentification : publiques (clé applicative seule, sans session utilisateur),
-    // car register/login servent justement à obtenir une session.
-    await apiApp.register(authRoutes, { prefix: '/api/auth' });
+      // Sous-scope protégé : authentification unifiée — session web (X-App-Key + cookie) OU clé API
+      // développeur (Authorization: Bearer dyk_…). request.authVia indique le mode retenu.
+      await apiApp.register(async (protectedApp) => {
+        protectedApp.addHook('onRequest', authenticate);
 
-    // Sous-scope protégé : exige en plus un JWT valide (verifyAuth attache request.authUser).
-    await apiApp.register(async (protectedApp) => {
-      protectedApp.addHook('onRequest', verifyAuth);
+        // Surface de l'API publique : accessible par clé API OU par session web.
+        await protectedApp.register(analyzeRoutes, { prefix: `${base}/analyze` });
+        await protectedApp.register(analysisRoutes, { prefix: `${base}/analyses` });
 
-      await protectedApp.register(analyzeRoutes, { prefix: '/api/analyze' });
-      await protectedApp.register(chatRoutes, { prefix: '/api/chat' });
-      await protectedApp.register(analysisRoutes, { prefix: '/api/analyses' });
-      await protectedApp.register(meRoutes, { prefix: '/api/me' });
-      await protectedApp.register(conversationsRoutes, { prefix: '/api/conversations' });
-      await protectedApp.register(globalRoutes, { prefix: '/api/global' });
-    });
+        // Surface réservée à la session web (gestion de compte, conversations, chat, feed public) :
+        // jamais accessible par clé API, même si la requête en porte une.
+        await protectedApp.register(async (sessionApp) => {
+          sessionApp.addHook('onRequest', requireSession);
+
+          await sessionApp.register(chatRoutes, { prefix: `${base}/chat` });
+          await sessionApp.register(meRoutes, { prefix: `${base}/me` });
+          await sessionApp.register(conversationsRoutes, { prefix: `${base}/conversations` });
+          await sessionApp.register(globalRoutes, { prefix: `${base}/global` });
+        });
+      });
+    };
+
+    await mountApiTree('/api/v1');
+    await mountApiTree('/api');
   });
 
   // ─── Médias (authentification par cookie uniquement) ──────────────────────────
@@ -239,6 +287,7 @@ export async function buildApp(opts: FastifyServerOptions = {}): Promise<Fastify
       },
     });
     mediaApp.addHook('onRequest', verifyAuth);
+    await mediaApp.register(mediaRoutes, { prefix: '/api/v1/media' });
     await mediaApp.register(mediaRoutes, { prefix: '/api/media' });
   });
 
@@ -258,6 +307,7 @@ export async function buildApp(opts: FastifyServerOptions = {}): Promise<Fastify
         };
       },
     });
+    await publicApp.register(publicRoutes, { prefix: '/api/v1/public' });
     await publicApp.register(publicRoutes, { prefix: '/api/public' });
   });
 

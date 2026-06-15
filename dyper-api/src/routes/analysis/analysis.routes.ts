@@ -16,6 +16,7 @@ export async function analysisRoutes(app: FastifyInstance): Promise<void> {
       type?: string;
       sort_by?: string;
       sort_order?: string;
+      fields?: string;
     };
   }>(
     '/',
@@ -31,6 +32,11 @@ export async function analysisRoutes(app: FastifyInstance): Promise<void> {
             type: { type: 'string', enum: ['image', 'video', 'prompt'] },
             sort_by: { type: 'string', enum: ['created_at', 'processing_time_ms', 'type'] },
             sort_order: { type: 'string', enum: ['asc', 'desc'] },
+            fields: {
+              type: 'string',
+              description:
+                'Sélection de champs (séparés par des virgules), ex. « id,type,description,created_at ».',
+            },
           },
         },
       },
@@ -39,13 +45,22 @@ export async function analysisRoutes(app: FastifyInstance): Promise<void> {
   );
 
   // GET /api/analyses/:id — détail d'une analyse.
-  app.get<{ Params: { id: string } }>(
+  app.get<{ Params: { id: string }; Querystring: { fields?: string } }>(
     '/:id',
     {
       schema: {
         tags: ['Analyses'],
         summary: 'Détail d’une analyse par son identifiant',
         params: { type: 'object', required: ['id'], properties: { id: { type: 'string' } } },
+        querystring: {
+          type: 'object',
+          properties: {
+            fields: {
+              type: 'string',
+              description: 'Sélection de champs (séparés par des virgules).',
+            },
+          },
+        },
       },
     },
     getAnalysisById

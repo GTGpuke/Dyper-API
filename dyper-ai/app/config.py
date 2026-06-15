@@ -29,8 +29,8 @@ class Settings(BaseSettings):
     YOLO_CONF_THRESHOLD: float = 0.25
 
     # --- Traitement ---
-    # Dimension maximale (px) à laquelle les images sont réduites avant inférence.
-    IMAGE_MAX_DIM: int = 1280
+    # Dimension maximale (px) avant inférence (plus haut = petits objets mieux détectés, plus lent).
+    IMAGE_MAX_DIM: int = 1536
     # Timeout (secondes) pour le téléchargement d'une image fournie par URL.
     IMAGE_FETCH_TIMEOUT: float = 10.0
 
@@ -48,6 +48,16 @@ class Settings(BaseSettings):
     VIDEO_MAX_FRAMES: int = 1800
     # Plafond du vocabulaire vision (global) transmis à la détection vidéo.
     VIDEO_VOCAB_MAX: int = 40
+    # Plancher de détection de coupure de plan (0–1) : une coupure est un PIC d'écart entre frames
+    # (couleur + structure) au-dessus de ce plancher ET de la base de mouvement locale (adaptatif).
+    # Au-delà, le suivi est réinitialisé (pas de persistance entre clips). 0 = désactivé ;
+    # baisser = plus sensible aux coupures, monter = moins.
+    SCENE_CUT_THRESHOLD: float = 0.20
+    # Nombre minimal de frames sur lesquelles une piste doit apparaître pour être affichée (vidéo).
+    # En deçà, la piste est jugée fugace — hallucination du vocabulaire ouvert ou label parasite
+    # d'une seule frame qui n'a pas tenu dans le temps — et ses détections sont écartées des boîtes
+    # par frame ET de l'agrégat. 1 = filtre désactivé (toute piste, même d'une frame, est gardée).
+    VIDEO_MIN_TRACK_FRAMES: int = 3
 
     # --- Compréhension multimodale (Groq, optionnelle) ---
     # Clé API Groq : active la compréhension globale (vision LLM) et la transcription audio.
@@ -85,7 +95,7 @@ class Settings(BaseSettings):
 
     # --- Chronologie ---
     # Nombre maximal d'échantillons manquants comblés entre deux détections d'une même piste
-    # (lissage anti-scintillement de la chronologie, ≈ 1,3 s à 3 img/s).
+    # (lissage anti-scintillement de la chronologie, ≈ 0,4 s à 10 img/s).
     TIMELINE_GAP_FILL: int = 4
 
     # --- Détection à vocabulaire ouvert (YOLO-World, fusionné avec COCO) ---
@@ -100,14 +110,26 @@ class Settings(BaseSettings):
 
     # --- Fusion COCO + vocabulaire ouvert (image & vidéo) ---
     # Confiance minimale des détections COCO (seuil d'inférence) — affichées et, en vidéo, suivies.
-    DISPLAY_MIN_CONFIDENCE: float = 0.40
+    DISPLAY_MIN_CONFIDENCE: float = 0.55
     # Confiance minimale de YOLO-World : calibrée plus bas car les scores CLIP sont structurellement
     # faibles — un seuil élevé masquerait quasiment toute la couverture ouverte.
-    WORLD_DISPLAY_MIN_CONFIDENCE: float = 0.25
+    WORLD_DISPLAY_MIN_CONFIDENCE: float = 0.30
     # Seuil IoU de fusion : au-delà, deux boîtes désignent le même objet (COCO prioritaire).
     MERGE_IOU_THRESHOLD: float = 0.55
-    # Plafond du vocabulaire ouvert transmis à YOLO-World (base étendue + éléments vision).
+    # Plafond du vocabulaire ouvert transmis à YOLO-World (éléments vision + base LVIS éventuelle).
     OPEN_VOCAB_MAX: int = 1500
+    # Inclure la base LVIS (~1200 classes) dans le vocabulaire ouvert des VIDÉOS. Vrai par défaut :
+    # en vidéo, le suivi écarte les détections fugaces (cf. VIDEO_MIN_TRACK_FRAMES), donc la large
+    # couverture LVIS retrouve les objets que la vision n'a pas listés SANS laisser passer les
+    # hallucinations brèves de classes obscures (un mur vu comme « birdbath », un cou comme
+    # « necklace »…). Les IMAGES restent toujours ancrées sur les éléments décrits par la vision
+    # (pas de filtre temporel possible pour départager une hallucination) : ce réglage ne les
+    # concerne pas. Mettre à Faux pour limiter aussi les vidéos aux seuls éléments décrits.
+    OPEN_VOCAB_INCLUDE_BASE: bool = True
+    # Marge de bordure (fraction de la dimension) : en vidéo, les détections dont la boîte touche
+    # le bord du cadre (objet tronqué, à moitié hors champ → label ambigu, ex. un camion entrant
+    # vu comme une voiture) sont écartées avant le suivi. 0 = désactivé ; régler selon le cadrage.
+    DETECTION_BORDER_MARGIN: float = 0.0
 
     # --- Suivi multi-objets sur mesure (vidéo, cf. app/services/tracker.py) ---
     # Pondérations du coût d'association : mouvement (distance à la position prédite), recouvrement
@@ -125,10 +147,10 @@ class Settings(BaseSettings):
     # --- Analyse de vidéos par URL (YouTube / Twitch) ---
     # Liste blanche des hôtes autorisés (séparés par des virgules) — aucun autre téléchargement.
     VIDEO_URL_ALLOWED_HOSTS: str = "youtube.com,youtu.be,twitch.tv"
-    # Résolution plafonnée du téléchargement (720p : aligne la qualité sur l'inférence 1280).
-    VIDEO_URL_MAX_HEIGHT: int = 720
+    # Résolution plafonnée du téléchargement (1080p : plus de détail pour les petits objets).
+    VIDEO_URL_MAX_HEIGHT: int = 1080
     # Taille maximale du fichier téléchargé (octets).
-    VIDEO_URL_MAX_BYTES: int = 100 * 1024 * 1024
+    VIDEO_URL_MAX_BYTES: int = 200 * 1024 * 1024
 
     model_config = SettingsConfigDict(env_file=".env", extra="ignore")
 

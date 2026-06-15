@@ -1,19 +1,22 @@
 // Aperçu rapide d'une analyse en panneau latéral : rend l'enregistrement déjà chargé
-// (zéro fetch) — média ou lecteur vidéo annoté, description, chapitres, transcription,
+// (zéro fetch) — média ou lecteur vidéo annoté, description, transcription,
 // musique, scène, couleurs, tags, métadonnées — avec accès au détail complet et suppression.
 import { AnimatePresence, motion } from 'framer-motion'
-import { type ReactNode, useEffect, useRef, useState } from 'react'
+import { type ReactNode, useEffect, useMemo, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { useI18n } from '../../contexts/I18nContext'
+import { useAnnotatedVideo } from '../../hooks/useAnnotatedVideo'
 import { deleteAnalysis, mediaUrl, videoUrl } from '../../services/api'
 import type { AnalysisRecord, ApiError } from '../../types'
 import { formatDateTime, formatProcessingTime } from '../../utils/formatters'
+import { BoundingBoxOverlay } from '../result/BoundingBoxOverlay'
 import { ColorPalette } from '../result/ColorPalette'
-import { MusicBadge } from '../result/MusicBadge'
+import { MusicList } from '../result/MusicList'
+import { ObjectList } from '../result/ObjectList'
+import { TranscriptKaraoke } from '../result/TranscriptKaraoke'
 import { SceneBadge } from '../result/SceneBadge'
 import { TagCloud } from '../result/TagCloud'
 import { VideoPlayer } from '../result/VideoPlayer'
-import { VideoTimeline } from '../result/VideoTimeline'
 import { Button } from '../ui/Button'
 import { ErrorBanner } from '../ui/ErrorBanner'
 import { TypeBadge } from './TypeBadge'
@@ -37,8 +40,18 @@ function QuickLookContent({
   onDeleted: (id: string) => void
 }) {
   const { t, lang } = useI18n()
-  const seekRef = useRef<((time: number) => void) | null>(null)
+  const priorityLabels = useMemo(
+    () => new Set((record.objects ?? []).filter((o) => o.priority !== false).map((o) => o.label)),
+    [record.objects]
+  )
+  const av = useAnnotatedVideo(priorityLabels)
   const hasPlayer = Boolean(record.video_path)
+  // Image annotée : mêmes boîtes interactives + filtre que dans le fil (parité avec la vidéo).
+  const showImageBoxes =
+    record.type === 'image' &&
+    record.source_width !== null &&
+    record.source_height !== null &&
+    Boolean(record.thumbnail_path)
   const [confirming, setConfirming] = useState(false)
   const [deleting, setDeleting] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -86,7 +99,16 @@ function QuickLookContent({
               frames={record.frame_detections ?? []}
               sourceWidth={record.source_width}
               sourceHeight={record.source_height}
-              seekRef={seekRef}
+              {...av.player}
+            />
+          ) : showImageBoxes ? (
+            <BoundingBoxOverlay
+              src={mediaUrl(record.request_id)}
+              objects={record.objects ?? []}
+              sourceDims={{
+                w: record.source_width as number,
+                h: record.source_height as number,
+              }}
             />
           ) : (
             record.thumbnail_path && (
@@ -107,31 +129,6 @@ function QuickLookContent({
             </p>
           </Section>
 
-          {record.music && record.music.length > 0 && (
-            <Section title={t('music.title')}>
-              <div>
-                <MusicBadge music={record.music} />
-              </div>
-            </Section>
-          )}
-
-          {record.timeline && record.timeline.length > 0 && (
-            <Section title={t('timeline.title')}>
-              <VideoTimeline
-                timeline={record.timeline}
-                onSeek={hasPlayer ? (time) => seekRef.current?.(time) : undefined}
-              />
-            </Section>
-          )}
-
-          {record.audio_transcript && (
-            <Section title={t('transcript.title')}>
-              <blockquote className="rounded-xl border-l-2 border-brand-400 bg-ink-50 px-3.5 py-2.5 text-sm italic leading-relaxed text-ink-600 dark:bg-ink-800/60 dark:text-ink-300">
-                {record.audio_transcript}
-              </blockquote>
-            </Section>
-          )}
-
           <Section title={t('result.scene')}>
             <SceneBadge
               label={record.scene_label}
@@ -139,6 +136,34 @@ function QuickLookContent({
               indoor={record.indoor}
             />
           </Section>
+
+          {record.objects && record.objects.length > 0 && (
+            <Section title={`${t('result.objects')} (${record.objects.length})`}>
+              <ObjectList
+                objects={record.objects}
+                timeline={record.timeline}
+                onSeek={hasPlayer ? av.seek : undefined}
+                {...av.timeline}
+              />
+            </Section>
+          )}
+
+          {record.audio_transcript && (
+            <Section title={t('transcript.title')}>
+              <TranscriptKaraoke
+                text={record.audio_transcript}
+                segments={record.transcript_segments}
+                timeRef={hasPlayer ? av.timeline.timeRef : undefined}
+                playing={av.timeline.playing}
+              />
+            </Section>
+          )}
+
+          {record.music && record.music.length > 0 && (
+            <Section title={t('music.title')}>
+              <MusicList music={record.music} />
+            </Section>
+          )}
 
           {record.colors.length > 0 && (
             <Section title={t('result.colors')}>
