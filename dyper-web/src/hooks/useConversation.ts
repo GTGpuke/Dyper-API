@@ -24,10 +24,16 @@ interface UseConversationReturn {
   stopAnalysis: () => void
   /** Conversation à laquelle se rattache l'analyse en cours (null si aucune). */
   analyzingConversationId: string | null
+  /** L'analyse de la conversation affichée est en file d'attente (pas encore en traitement). */
+  analyzingQueued: boolean
   /** Conversations dont une analyse tourne en tâche de fond (suivies même hors de l'écran). */
   pendingAnalysisIds: string[]
   /** Conversation à laquelle se rattache la réponse en streaming en cours (null si aucune). */
   streamingConversationId: string | null
+  /** Conversation dont l'analyse vient de se terminer hors écran (toast in-app) ; null si aucune. */
+  readyConversationId: string | null
+  /** Efface le toast « analyse prête ». */
+  dismissReady: () => void
   /** Message de quota de forfait atteint (soft-block) ; null si aucun. */
   quotaError: string | null
   /** Efface l'alerte de quota. */
@@ -52,11 +58,17 @@ export function useConversation(
   // Conversation à laquelle se rattache l'analyse en cours : l'indicateur de progression n'est
   // affiché que pour CETTE conversation (sinon il fuiterait dans les autres discussions).
   const [analyzingConversationId, setAnalyzingConversationId] = useState<string | null>(null)
+  // L'analyse de la conversation affichée est EN FILE (pas encore traitée) : l'indicateur montre
+  // alors l'attente plutôt qu'une fausse progression.
+  const [analyzingQueued, setAnalyzingQueued] = useState(false)
   // Idem pour la réponse en streaming (sert à proposer une notification si on a changé de conversation).
   const [streamingConversationId, setStreamingConversationId] = useState<string | null>(null)
   // Analyses en tâche de fond en cours (toutes conversations confondues), pour proposer une
   // notification quand l'utilisateur n'est pas sur la conversation concernée.
   const [pendingAnalysisIds, setPendingAnalysisIds] = useState<string[]>([])
+  // Conversation dont l'analyse vient de se terminer alors qu'elle n'était pas ouverte : pilote
+  // le toast in-app « analyse prête » (en complément de la notification système).
+  const [readyConversationId, setReadyConversationId] = useState<string | null>(null)
 
   // Conversation créée localement : le rechargement qui suit la navigation est sauté
   // pour ne pas écraser les messages optimistes.
@@ -71,6 +83,11 @@ export function useConversation(
   const pollersRef = useRef<Map<string, ReturnType<typeof setInterval>>>(new Map())
   // Conversations vues « en cours » : sert à ne notifier qu'à la TRANSITION en cours → terminé.
   const wasPendingRef = useRef<Set<string>>(new Set())
+  // Conversations dont l'analyse est en cours d'annulation (Stop) : on masque aussitôt l'indicateur
+  // sans attendre que le serveur ait supprimé l'échange — sinon un sondage intermédiaire, voyant la
+  // carte encore « pending », ferait réapparaître l'indicateur (effet « reload »). Levée quand le
+  // serveur a effectivement retiré l'échange.
+  const cancellingRef = useRef<Set<string>>(new Set())
   // Conversation actuellement affichée : permet, au retour d'une analyse, de n'appliquer la
   // mise à jour qu'à la bonne discussion (l'utilisateur a pu naviguer ailleurs entre-temps).
   const currentConversationRef = useRef<string | undefined>(conversationId)
@@ -93,47 +110,81 @@ export function useConversation(
   // Retourne true tant qu'une analyse reste en cours (le sondeur s'arrête sinon).
   const applyConversation = useCallback(
     (id: string, conversation: { title: string }, serverMessages: ClientMessage[]): boolean => {
-      const pending = serverMessages.some(
+      // Une analyse est « en cours » dès qu'elle est en file (queued) OU en traitement (pending).
+      const queued = serverMessages.some(
+        (m) => m.kind === 'analysis' && m.analysisStatus === 'queued'
+      )
+      const processing = serverMessages.some(
         (m) => m.kind === 'analysis' && m.analysisStatus === 'pending'
       )
+      const inProgress = queued || processing
       const isActive = currentConversationRef.current === id
+      // Pendant une annulation, on n'affiche plus l'indicateur même si le serveur signale encore
+      // une analyse en cours (le temps qu'il retire l'échange) : évite le clignotement « reload ».
+      const cancelling = cancellingRef.current.has(id)
+      const showProgress = inProgress && !cancelling
 
       // Suivi global des analyses en cours (notification « hors écran »).
       setPendingAnalysisIds((prev) => {
         const has = prev.includes(id)
-        if (pending && !has) return [...prev, id]
-        if (!pending && has) return prev.filter((p) => p !== id)
+        if (showProgress && !has) return [...prev, id]
+        if (!showProgress && has) return prev.filter((p) => p !== id)
         return prev
       })
 
       if (isActive) {
-        // Cartes « pending » masquées (remplacées par l'indicateur) ; cartes « error » conservées
-        // (rendues comme un échec d'analyse).
-        setMessages(serverMessages.filter((m) => !(m.kind === 'analysis' && m.analysisStatus === 'pending')))
-        setSending(pending)
-        if (pending) setAnalyzingConversationId(id)
+        // Cartes en cours (queued/pending) masquées (remplacées par l'indicateur) ; cartes « error »
+        // conservées (rendues comme un échec d'analyse).
+        setMessages(
+          serverMessages.filter(
+            (m) =>
+              !(
+                m.kind === 'analysis' &&
+                (m.analysisStatus === 'queued' || m.analysisStatus === 'pending')
+              )
+          )
+        )
+        setSending(showProgress)
+        if (showProgress) setAnalyzingConversationId(id)
         else setAnalyzingConversationId((cur) => (cur === id ? null : cur))
+        // L'indicateur affiche l'état « en file d'attente » tant que le traitement n'a pas démarré.
+        setAnalyzingQueued(showProgress && queued && !processing)
       }
 
       const wasPending = wasPendingRef.current.has(id)
-      if (pending) {
+      if (inProgress) {
         wasPendingRef.current.add(id)
       } else if (wasPending) {
         wasPendingRef.current.delete(id)
-        // La liste latérale peut avoir été renommée d'après la description : on rafraîchit.
-        touch(id, conversation.title)
-        // Notifie seulement si la conversation n'est pas ouverte au premier plan.
-        if (!isActive || document.hidden) {
-          notify(t('notify.analysisReady'), {
-            body: t('notify.body'),
-            onClick: () => navigateToConversation(id),
-          })
+        // L'analyse s'est terminée d'elle-même OU son annulation est désormais effective côté serveur.
+        const wasCancelled = cancellingRef.current.delete(id)
+        if (!wasCancelled) {
+          // La liste latérale peut avoir été renommée d'après la description : on rafraîchit.
+          touch(id, conversation.title)
+          // Conversation non ouverte : toast in-app cliquable (visible même sans permission système).
+          if (!isActive) setReadyConversationId(id)
+          // Notification système : si la conversation n'est pas ouverte au premier plan.
+          if (!isActive || document.hidden) {
+            notify(t('notify.analysisReady'), {
+              body: t('notify.body'),
+              onClick: () => navigateToConversation(id),
+            })
+          }
         }
       }
-      return pending
+      return inProgress
     },
     [navigateToConversation, notify, t, touch]
   )
+
+  // Arrête le sondage d'une conversation (intervalle nettoyé, entrée retirée du registre).
+  const stopPolling = useCallback((id: string): void => {
+    const handle = pollersRef.current.get(id)
+    if (handle) {
+      clearInterval(handle)
+      pollersRef.current.delete(id)
+    }
+  }, [])
 
   // Un tour de sondage : récupère le fil et s'arrête dès que l'analyse est terminée.
   const pollOnce = useCallback(
@@ -141,18 +192,18 @@ export function useConversation(
       try {
         const { conversation, messages: loaded } = await api.getConversation(id)
         const stillPending = applyConversation(id, conversation, loaded)
-        if (!stillPending) {
-          const handle = pollersRef.current.get(id)
-          if (handle) {
-            clearInterval(handle)
-            pollersRef.current.delete(id)
-          }
+        if (!stillPending) stopPolling(id)
+      } catch (err) {
+        // Conversation disparue (supprimée) → on cesse de sonder. Toute autre erreur est transitoire
+        // (le job tourne toujours côté serveur) : on conserve le sondage.
+        if ((err as { response?: { status?: number } } | null)?.response?.status === 404) {
+          cancellingRef.current.delete(id)
+          wasPendingRef.current.delete(id)
+          stopPolling(id)
         }
-      } catch {
-        // Erreur transitoire : on conserve le sondage (le job tourne toujours côté serveur).
       }
     },
-    [applyConversation]
+    [applyConversation, stopPolling]
   )
 
   // Démarre le suivi d'une analyse en tâche de fond (idempotent par conversation).
@@ -370,18 +421,25 @@ export function useConversation(
     }
     const id = analyzingConversationId ?? conversationId
     if (!id) return
+    // Masque immédiatement l'indicateur et empêche un sondage intermédiaire de le ressusciter
+    // (le serveur peut signaler « pending » encore un court instant avant de retirer l'échange).
+    cancellingRef.current.add(id)
     setSending(false)
     setAnalyzingConversationId((cur) => (cur === id ? null : cur))
+    setAnalyzingQueued(false)
     setPendingAnalysisIds((prev) => prev.filter((p) => p !== id))
-    // Supprime le suivi du « terminé » pour ne pas notifier une fin qui est en réalité une annulation.
-    wasPendingRef.current.delete(id)
+    // On garde un sondage actif : il constatera le retrait de l'échange par le serveur, lèvera le
+    // drapeau d'annulation et s'arrêtera — sans notifier une « fin » qui est en fait une annulation.
+    startPolling(id)
     void api
       .cancelAnalysis(id)
       .then(() => pollOnce(id))
       .catch(() => undefined)
-  }, [analyzingConversationId, conversationId, pollOnce])
+  }, [analyzingConversationId, conversationId, pollOnce, startPolling])
 
   const clearQuotaError = useCallback(() => setQuotaError(null), [])
+
+  const dismissReady = useCallback(() => setReadyConversationId(null), [])
 
   const retry = useCallback(async () => {
     const failed = lastFailedRef.current
@@ -405,8 +463,11 @@ export function useConversation(
     stopStreaming: stream.stop,
     stopAnalysis,
     analyzingConversationId,
+    analyzingQueued,
     pendingAnalysisIds,
     streamingConversationId,
+    readyConversationId,
+    dismissReady,
     quotaError,
     clearQuotaError,
   }

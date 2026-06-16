@@ -1,10 +1,13 @@
-# Checklist de présentation — installation et jour J (laptop RTX 3050)
+# Checklist de présentation — machine de démo (IA sur serveur GPU distant)
 
-Procédure complète pour installer Dyper sur la machine de présentation à partir du dépôt
-GitHub, puis dérouler la démo sans surprise.
+Procédure pour préparer la **machine de démo** à partir du dépôt GitHub, puis dérouler la démo
+sans surprise. **Le modèle ne tourne plus en local** : `dyper-ai` est déployé sur un **serveur GPU
+distant** (cf. [HOSTING.md](HOSTING.md) pour son déploiement). La machine de démo n'exécute donc
+plus que **`dyper-api`** et **`dyper-web`** (Node) — ni Python, ni CUDA, ni poids de modèle à
+installer en local.
 
-> **À faire LA VEILLE, avec une bonne connexion internet** (≈ 6 Go de téléchargements).
-> Durée estimée : 45 minutes. Prévoir **≥ 15 Go d'espace disque libre**.
+> **Pré-requis côté serveur** : le serveur `dyper-ai` distant doit être **démarré et joignable**
+> avant la démo. Vérifiable via le badge de santé de l'interface (IA vert) — voir §6.
 
 ---
 
@@ -12,10 +15,10 @@ GitHub, puis dérouler la démo sans surprise.
 
 | Outil | Version | Note |
 |---|---|---|
-| Python | **3.11 ou 3.12** (pas 3.13+) | python.org — cocher « Add to PATH » |
-| Node.js | **20 LTS** | nodejs.org |
+| Node.js | **20 LTS** | nodejs.org — passerelle + frontend |
 | Git | dernière | git-scm.com |
-| Pilote NVIDIA | récent (≥ 551) | GeForce Experience ou nvidia.com |
+
+(Plus besoin de Python ni du pilote NVIDIA sur la machine de démo : l'inférence est distante.)
 
 ## 2. Cloner le projet
 
@@ -24,121 +27,91 @@ git clone https://github.com/GTGpuke/Dyper-API.git
 cd Dyper-API
 ```
 
-## 3. Fichiers NON versionnés à apporter (clé USB depuis le PC fixe)
-
-| Fichier | Source sur le PC fixe | Destination sur le laptop |
-|---|---|---|
-| `yolo26l.pt` (~50 Mo) | `model/` | `model/` |
-| `yolov8x-worldv2.pt` (~140 Mo) | `model/` | `model/` — évite le re-téléchargement |
-| `weights/clip/ViT-B-32.pt` (~340 Mo) | `dyper-ai/weights/clip/` | `dyper-ai/weights/clip/` — encodeur texte du vocabulaire ouvert, évite ~10 min de téléchargement |
-| Les 3 fichiers `.env` | `dyper-ai/`, `dyper-api/`, `dyper-web/` | mêmes emplacements — **contiennent les clés API**, jamais sur GitHub |
-
-Sans clé USB : les modèles se re-téléchargent automatiquement (YOLO-World) ou depuis leur
-source (yolo26l), et les `.env` se recréent depuis les `.env.example` (étape 6).
-
-## 4. dyper-ai (Python + GPU)
+## 3. Installer dyper-api et dyper-web (Node)
 
 ```powershell
-cd dyper-ai
-python -m venv .venv
-.venv\Scripts\activate
-pip install -r requirements.txt
-
-# Accélération GPU — cu128 couvre la RTX 3050 (et les RTX 50xx) — ~3,3 Go :
-pip uninstall -y torch torchvision
-pip install torch torchvision --index-url https://download.pytorch.org/whl/cu128
-
-# Vérification OBLIGATOIRE (doit afficher « cuda: True ») :
-python -c "import torch; print('cuda:', torch.cuda.is_available())"
-```
-
-## 5. dyper-api et dyper-web (Node)
-
-```powershell
-cd ..\dyper-api ; npm install
+cd dyper-api ; npm install
 cd ..\dyper-web ; npm install
 ```
 
-## 6. Fichiers .env (si non copiés par USB)
+## 4. Fichiers .env
 
-Copier chaque `.env.example` en `.env`, puis renseigner :
+Copier chaque `.env.example` en `.env` (dans `dyper-api/` et `dyper-web/`), puis renseigner.
+Ces fichiers **contiennent des clés** — à apporter par clé USB ou à recréer ici, jamais sur GitHub.
 
-- **dyper-ai/.env** : `AI_INTERNAL_KEY` (chaîne au choix, identique à dyper-api),
-  **`GROQ_API_KEY`** (console.groq.com — indispensable pour les descriptions riches),
-  `AUDD_API_TOKEN` (optionnel — reconnaissance musicale, audd.io).
-- **dyper-api/.env** : `APP_KEY` + `JWT_SECRET` (chaînes aléatoires longues),
-  `AI_INTERNAL_KEY` (= dyper-ai), `GROQ_API_KEY` (la même).
-- **dyper-web/.env** : `VITE_APP_KEY` (= `APP_KEY` de dyper-api), `VITE_API_URL` laissé vide.
+- **dyper-api/.env** :
+  - **`AI_SERVICE_URL`** → URL du **serveur `dyper-ai` distant** (ex. `https://ai.votre-domaine.tld`).
+    C'est LA variable qui pointe la passerelle vers l'IA hébergée.
+  - **`AI_INTERNAL_KEY`** → **identique** à celle configurée sur le serveur `dyper-ai` distant
+    (authentification interne passerelle ↔ IA).
+  - `APP_KEY` + `JWT_SECRET` (chaînes aléatoires longues).
+  - **`GROQ_API_KEY`** (console.groq.com) — utilisée par la passerelle pour le **chat de suivi**
+    (les réponses conversationnelles). Indispensable pour des réponses riches.
+- **dyper-web/.env** : `VITE_APP_KEY` (= `APP_KEY` de dyper-api), `VITE_API_URL` laissé vide
+  (la passerelle est servie en local).
 
-## 7. Premier démarrage (AVEC internet — force les derniers téléchargements)
+## 5. Démarrage local
 
-Trois terminaux :
+Deux terminaux (la machine de démo n'exécute plus dyper-ai) :
 
 ```powershell
-# 1 — dyper-ai (peut télécharger YOLO-World + l'encodeur CLIP au premier lancement)
-cd dyper-ai ; .venv\Scripts\activate
-uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload --reload-dir app
-
-# 2 — dyper-api
+# 1 — dyper-api
 cd dyper-api ; npm run dev
 
-# 3 — dyper-web
+# 2 — dyper-web
 cd dyper-web ; npm run dev
 ```
 
-## 8. Répétition générale (la veille, obligatoire)
+## 6. Vérification (la veille, obligatoire)
 
-Ouvrir http://localhost:5173 puis :
+Ouvrir http://localhost:5173, se connecter au compte de démo, puis vérifier le **badge de santé**
+en bas de la sidebar :
+
+- **Base** vert → SQLite/passerelle OK.
+- **IA** vert → le **serveur `dyper-ai` distant est joignable** via `AI_SERVICE_URL`. S'il est
+  rouge : serveur distant éteint, mauvaise URL, ou `AI_INTERNAL_KEY` différente (cf. §4).
+
+Puis dérouler la répétition générale :
 
 1. **Créer le compte de démo** (le garder pour le jour J — les analyses restent en historique).
-2. Analyser **une image** → vérifier la description riche ET les cadres alignés dessus.
+2. Analyser **une image** → description riche ET cadres alignés dessus.
 3. Analyser **une vidéo** (< 5 min) → lecteur annoté, chronologie cliquable, transcription.
 4. Coller **un lien YouTube** court → analyse complète.
 5. Poser **une question de suivi** (« que voit-on à gauche ? ») → réponse fondée sur l'image.
-
-Cette répétition force tous les téléchargements de modèles — en particulier **l'encodeur CLIP
-(~340 Mo) qui se télécharge à la PREMIÈRE ANALYSE** (pas au démarrage du serveur) si
-`dyper-ai/weights/clip/ViT-B-32.pt` n'a pas été copié par USB. Le jour J, plus rien ne se
-télécharge côté modèles.
 
 ---
 
 ## Le jour J
 
 ### Démarrage (10 min avant)
-1. **Connexion internet requise** : la compréhension riche (vision Groq), la transcription,
-   la musique et les liens YouTube passent par des APIs. Prévoir le **partage de connexion du
-   téléphone en secours**.
-2. Lancer les 3 terminaux (ordre : dyper-ai → dyper-api → dyper-web, commandes de l'étape 7).
-3. Attendre dans le terminal dyper-ai : « Modèle yolo26l chargé » et « yolov8x-worldv2
-   (vocabulaire ouvert) chargé ».
-4. Ouvrir http://localhost:5173, se connecter au compte de démo, vérifier le badge de santé
-   (Base + IA verts) en bas de la sidebar.
+1. **Connexion internet requise** : l'inférence (serveur IA distant), la compréhension riche
+   (vision Groq), la transcription, la musique et les liens YouTube passent par le réseau. Prévoir
+   le **partage de connexion du téléphone en secours**.
+2. S'assurer que le **serveur `dyper-ai` distant est démarré** (et, s'il est saturé, qu'aucune
+   analyse lourde n'est déjà en cours).
+3. Lancer les 2 terminaux locaux (dyper-api → dyper-web, commandes de l'étape 5).
+4. Ouvrir http://localhost:5173, se connecter, vérifier le badge de santé (**Base + IA verts**).
 
-### Temps d'analyse à annoncer (RTX 3050)
-| Média | Durée attendue |
-|---|---|
-| Image | ~3 à 10 s |
-| Vidéo 30 s | ~1 à 2 min |
-| Vidéo 2-5 min / lien YouTube | ~3 à 10 min (analyse approfondie : 3 images/s, chapitres) |
-
-(La barre de progression et les étapes s'affichent pendant l'analyse — c'est un moment de
-narration, pas un temps mort.)
+### Temps d'analyse
+Les durées dépendent du **serveur GPU distant** : calez votre discours sur vos mesures réelles, et
+ajustez `AVG_ANALYSIS_SECONDS` (dyper-api) pour que l'estimation d'attente affichée colle. La barre
+de progression et les étapes s'affichent pendant l'analyse — c'est un moment de narration, pas un
+temps mort. Sous forte charge, l'interface annonce un **délai estimé avant démarrage** (file
+d'attente de calcul).
 
 ### Plan B
 | Problème | Conséquence | Réaction |
 |---|---|---|
-| Plus d'internet | Descriptions riches/audio/YouTube indisponibles ; **la détection locale COCO et le lecteur continuent de fonctionner** | Partage de connexion, ou démo sur les analyses déjà en historique |
-| VRAM saturée (rare) | Bascule CPU automatique (plus lent, jamais bloquant) | Option : `WORLD_MODEL_VARIANT=yolov8l-worldv2` dans dyper-ai/.env + relancer |
-| Un service plante | — | Relancer son terminal ; l'historique et les comptes sont persistés (SQLite) |
-| Chapitres « sans description » sur une longue vidéo | Limite de tokens/minute du palier gratuit Groq (les retries absorbent l'essentiel) | Attendre 1 min entre deux analyses longues ; pour un confort total le jour J : **Dev Tier Groq** (console.groq.com/settings/billing, facturation à l'usage, très bon marché) |
+| Plus d'internet sur la machine de démo | L'IA distante et les APIs (Groq) sont injoignables → **aucune nouvelle analyse** | Partage de connexion du téléphone, ou démo sur les analyses déjà en **historique** |
+| Serveur IA distant injoignable / éteint | Badge **IA rouge**, analyses en échec | Le redémarrer ; vérifier `AI_SERVICE_URL` et `AI_INTERNAL_KEY` ; en attendant, démo sur l'historique |
+| Service saturé (plusieurs analyses) | Mise en file, délai annoncé à l'écran | Patienter (l'attente est affichée) ; lancer les analyses lourdes à l'avance |
+| Un service local (api/web) plante | — | Relancer son terminal ; l'historique et les comptes sont persistés (SQLite) |
 
 ## Dépannage express
 
 | Symptôme | Cause probable | Solution |
 |---|---|---|
-| dyper-ai crash au démarrage | `yolo26l.pt` absent | Le copier dans `model/` |
-| Descriptions « template » pauvres | `GROQ_API_KEY` vide ou invalide | La renseigner dans LES DEUX .env, redémarrer |
-| Cadres limités aux 80 objets COCO | YOLO-World pas chargé (voir log au démarrage) | Vérifier internet au 1er lancement, ou copier `yolov8x-worldv2.pt` dans `model/` |
+| Badge **IA rouge** / analyses qui échouent | Serveur distant éteint, `AI_SERVICE_URL` erronée, ou `AI_INTERNAL_KEY` ≠ serveur | Démarrer le serveur, corriger l'URL/la clé dans `dyper-api/.env`, relancer la passerelle |
+| Descriptions « template » pauvres | `GROQ_API_KEY` vide/invalide dans `dyper-api/.env` (chat) | La renseigner, redémarrer dyper-api |
 | 401 dans l'interface | `VITE_APP_KEY` ≠ `APP_KEY` | Les aligner, relancer dyper-web |
-| `cuda: False` | Pilote NVIDIA trop ancien | Mettre à jour le pilote |
+| Lenteur / file d'attente | Forte charge sur le serveur GPU distant | Voir le délai annoncé ; pré-lancer les analyses lourdes ; régler `MAX_CONCURRENT_ANALYSES` côté serveur |

@@ -61,6 +61,9 @@ export async function runAnalysisJob(job: AnalysisJob): Promise<void> {
 
   try {
     release = await acquireSlot(job.priority, ac.signal);
+    // Créneau de calcul obtenu : la carte passe de « en file » à « en traitement » (le client
+    // affiche alors la progression réelle plutôt que l'attente).
+    await Message.update({ status: 'pending' }, { where: { id: job.assistantMessageId } });
     const aiResponse = await aiService.process({
       requestId: job.requestId,
       fileBuffer: job.fileBuffer,

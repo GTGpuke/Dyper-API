@@ -85,25 +85,27 @@ Interface sur http://localhost:5173.
 | Python | **3.11 / 3.12** | 3.14+ non supporté (wheels manquants) |
 | Node.js | **20 LTS** | passerelle + frontend |
 
-### Accélération GPU (fortement recommandée)
+### Accélération GPU
 
-L'inférence (YOLO COCO, YOLO-World, tracking) utilise automatiquement le GPU NVIDIA dès que
-torch-CUDA est installé dans le venv de `dyper-ai`. Utiliser **cu128** (compatible des GPU
-Ampere comme la RTX 3050 jusqu'aux Blackwell comme les RTX 50xx) :
+`dyper-ai` exécute l'inférence (YOLO COCO, YOLO-World, tracking) sur **GPU NVIDIA**. Le service
+**n'est plus prévu pour tourner en local** : en production il est déployé sur un **serveur GPU
+distant** (cloud ou dédié). L'accélération s'active dès que torch-CUDA est installé dans le venv de
+`dyper-ai` ; utiliser **cu128** (compatible des GPU Ampere jusqu'aux Blackwell / RTX 50xx) :
 
 ```bash
-# Dans dyper-ai, venv activé (~3,3 Go de téléchargement) :
+# Sur l'hôte qui exécute dyper-ai (serveur GPU), venv activé (~3,3 Go) :
 pip uninstall -y torch torchvision
 pip install torch torchvision --index-url https://download.pytorch.org/whl/cu128
 ```
 
-Sur un GPU à VRAM limitée (ex. **RTX 3050**), conserver la variante maximale fonctionne (bascule
-CPU automatique en cas de mémoire insuffisante) ; pour rester sur GPU, abaisser la variante :
-`WORLD_MODEL_VARIANT=yolov8l-worldv2` dans `dyper-ai/.env`. Penser à **démarrer une première
-fois avec internet** : YOLO-World (~400 Mo) se télécharge automatiquement au premier lancement.
+Sur un GPU à **VRAM limitée**, conserver la variante maximale fonctionne (bascule CPU automatique
+en cas de mémoire insuffisante) ; pour rester sur GPU, abaisser la variante :
+`WORLD_MODEL_VARIANT=yolov8l-worldv2` dans `dyper-ai/.env`. Au **premier** lancement avec accès
+internet, YOLO-World (~400 Mo) se télécharge automatiquement.
 
-> **Installation complète sur une nouvelle machine (jour de présentation) :** suivre la
-> checklist pas à pas [docs/INSTALLATION-PRESENTATION.md](docs/INSTALLATION-PRESENTATION.md).
+> **Déploiement** (services, GPU distant, reverse proxy, Docker) : voir
+> [docs/HOSTING.md](docs/HOSTING.md). **Préparer une machine de démo** (web/api en local pointant
+> vers l'IA distante) : [docs/INSTALLATION-PRESENTATION.md](docs/INSTALLATION-PRESENTATION.md).
 
 ---
 

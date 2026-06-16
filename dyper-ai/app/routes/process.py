@@ -1,6 +1,7 @@
 """Route principale POST /process du service dyper-ai."""
 
 import base64
+import math
 import os
 import time
 from collections import Counter
@@ -68,31 +69,40 @@ def fill_track_gaps(frames: list[FrameDetections], max_gap: int) -> list[Timelin
     ]
 
 
-def drop_transient_tracks(
+def drop_brief_tracks(
     frames: list[FrameDetections],
-    min_frames: int,
+    min_seconds: float,
     mirrors: list[list[DetectedObject]] | None = None,
 ) -> None:
-    """Écarte les détections des pistes trop fugaces (vues sur trop peu de frames de la séquence).
+    """Écarte les pistes dont la durée CUMULÉE de détection est inférieure à `min_seconds`.
 
-    Une hallucination du vocabulaire ouvert (« birdbath », « necklace »…) ou un label parasite
-    d'une seule frame n'apparaît que sur une poignée de frames éparses : suivi, il forme une piste
-    très courte qu'un vrai objet — présent au moins quelques dixièmes de seconde — ne produit pas.
-    On retire donc ces pistes des boîtes par frame ET des listes miroir fournies (objets agrégés,
-    qui partagent les mêmes instances mais pas le même conteneur de liste). Une piste présente sur
-    toute la séquence analysée (clip très court) n'est jamais filtrée. Les objets non suivis (sans
-    trackId) sont toujours conservés. `min_frames <= 1` désactive le filtre. En place.
+    Présence CUMULÉE (et non continue) : on compte le nombre total de frames où la piste apparaît,
+    sans exiger qu'elles soient consécutives. Les vrais objets du vocabulaire ouvert (mug, cup,
+    glasses, suit…) sont détectés par INTERMITTENCE (le détecteur ouvert clignote) tout en étant bien
+    présents ; un critère de continuité les éliminait à tort. Une hallucination ou un label parasite,
+    lui, n'apparaît que sur une ou deux frames isolées : sa durée cumulée reste sous le seuil. Le
+    seuil en frames est dérivé de la durée réelle d'échantillonnage (indépendant de la cadence). On
+    retire ces pistes des boîtes par frame ET des listes miroir fournies (objets agrégés : mêmes
+    instances mais conteneur de liste distinct). Une piste présente sur TOUTE la séquence analysée
+    (clip très court) n'est jamais filtrée. Les objets non suivis (sans trackId) sont toujours
+    conservés. `min_seconds <= 0` désactive le filtre. En place.
     """
-    if min_frames <= 1:
-        return
     total = len(frames)
+    if min_seconds <= 0 or total < 2:
+        return
+    # Intervalle d'échantillonnage réel (uniforme) → conversion durée → nombre de frames minimal.
+    interval = (frames[-1].t - frames[0].t) / (total - 1)
+    if interval <= 0:
+        return
+    min_frames = max(2, math.ceil(min_seconds / interval))
+
     counts: dict[int, int] = {}
     for frame in frames:
         for obj in frame.objects:
             if obj.trackId is not None:
                 counts[obj.trackId] = counts.get(obj.trackId, 0) + 1
-    # Fugace = vue sur peu de frames ET absente d'au moins une : une piste présente sur TOUTE la
-    # séquence analysée (cas d'un clip très court) n'est pas un artefact et reste conservée.
+    # Fugace = vue sur trop peu de frames AU TOTAL ET absente d'au moins une : une piste présente sur
+    # TOUTE la séquence analysée (cas d'un clip très court) n'est pas un artefact et reste conservée.
     transient = {
         track_id for track_id, count in counts.items() if count < min_frames and count < total
     }
@@ -320,9 +330,9 @@ async def process(
 
             # Couverture maximale : COCO (précis sur ses 80 classes) ET le détecteur à
             # vocabulaire ouvert (concepts arbitraires) sont exécutés, puis leurs boîtes sont
-            # fusionnées (une seule par objet, COCO prioritaire). La vision « décrit puis
-            # ancre » : ses éléments forment le vocabulaire ouvert (la base LVIS reste
-            # optionnelle, cf. OPEN_VOCAB_INCLUDE_BASE).
+            # fusionnées (une seule par objet, COCO prioritaire). La vision « décrit puis ancre » :
+            # ses éléments forment le vocabulaire ouvert, élargi à la base LVIS si
+            # IMAGE_OPEN_VOCAB_INCLUDE_BASE (couverture maximale en image).
             world = getattr(request.app.state, "world", None)
             vision = await vision_llm.describe_and_extract([image], body.lang, body.prompt)
 
@@ -331,7 +341,12 @@ async def process(
             )
             world_ready = world is not None and world.is_ready()
             vocabulary = (
-                build_vocabulary(list(vision.elements) if vision else []) if world_ready else []
+                build_vocabulary(
+                    list(vision.elements) if vision else [],
+                    include_base=settings.IMAGE_OPEN_VOCAB_INCLUDE_BASE,
+                )
+                if world_ready
+                else []
             )
             # World n'est fusionné que s'il a un vocabulaire à chercher : sans base LVIS, un
             # vocabulaire vide (aucun élément vision) revient à COCO seul.
@@ -403,9 +418,11 @@ async def process(
                 }
 
                 # Analyse de la piste audio : transcription horodatée + bande-son (multi-titres).
+                t_audio = time.time()
                 transcript, transcript_segments, musics = await audio_service.analyze_audio(
                     tmp_path
                 )
+                logger.info(f"[{body.requestId}] audio : {time.time() - t_audio:.1f}s")
                 music_summary = (
                     " ; ".join(f"{m.artist} — {m.title}" for m in musics) if musics else None
                 )
@@ -417,6 +434,7 @@ async def process(
                     for i in sorted(keyframe_indices)
                 ]
                 world = getattr(request.app.state, "world", None)
+                t_vision = time.time()
                 vision = await vision_llm.describe_and_extract(
                     vision_frames,
                     body.lang,
@@ -424,6 +442,9 @@ async def process(
                     transcript=transcript,
                     music_summary=music_summary,
                     is_video=True,
+                )
+                logger.info(
+                    f"[{body.requestId}] vision (compte rendu global) : {time.time() - t_vision:.1f}s"
                 )
 
                 # Vocabulaire ouvert = éléments listés par la vision globale (et, en option, la base
@@ -454,10 +475,13 @@ async def process(
                 frame_responses: list[ProcessResponse] = []
                 frame_detections: list[FrameDetections] = []
                 first_resized: Image.Image | None = None
+                t_loop = time.time()
                 for frame_index, (frame, timestamp) in enumerate(frames):
-                    # Annulation côté client : si la passerelle a fermé la connexion (bouton Stop),
-                    # on interrompt la boucle sans gaspiller de calcul. Vérifié périodiquement
-                    # (toutes les 10 frames) pour ne pas peser sur le débit d'inférence.
+                    # Annulation côté client (bouton Stop) : on interrompt la boucle si la passerelle
+                    # a fermé la connexion. Vérifié toutes les 10 frames seulement — l'appel
+                    # `is_disconnected()` n'est pas gratuit et ne doit pas peser sur le débit
+                    # d'inférence (la réactivité de /health est, elle, couverte par un timeout large
+                    # côté passerelle).
                     if frame_index % 10 == 0 and await request.is_disconnected():
                         raise HTTPException(
                             status_code=499, detail="Analyse annulée (client déconnecté)."
@@ -500,6 +524,10 @@ async def process(
                     frame_detections.append(
                         FrameDetections(t=timestamp, objects=frame_result.visualization.objects)
                     )
+                logger.info(
+                    f"[{body.requestId}] détection par frame : {len(frame_responses)} frames "
+                    f"en {time.time() - t_loop:.1f}s"
+                )
 
                 # Vidéo téléchargée depuis une URL : renvoyée à la passerelle pour stockage
                 # (parité totale avec un upload — lecteur annoté, streaming, purge).
@@ -512,11 +540,11 @@ async def process(
                     os.remove(tmp_path)
 
             # Écarte d'abord les pistes trop fugaces (hallucinations du vocabulaire ouvert, labels
-            # parasites d'une seule frame) : une vraie présence dure plusieurs frames. Filtre les
-            # boîtes par frame ET l'agrégat (réponses par frame, qui partagent les mêmes objets).
-            drop_transient_tracks(
+            # parasites de quelques frames) : un objet réel cumule plus d'une demi-seconde de présence.
+            # Filtre les boîtes par frame ET l'agrégat (réponses par frame, qui partagent les objets).
+            drop_brief_tracks(
                 frame_detections,
-                settings.VIDEO_MIN_TRACK_FRAMES,
+                settings.VIDEO_MIN_TRACK_SECONDS,
                 mirrors=[resp.visualization.objects for resp in frame_responses],
             )
 
@@ -547,8 +575,12 @@ async def process(
                 detections_summary = build_detection_summary(
                     frame_detections, result.sourceWidth, result.sourceHeight, body.lang
                 )
+                t_synth = time.time()
                 synthesized = await vision_llm.synthesize_description(
                     vision.description, detections_summary, transcript, music_summary, body.lang
+                )
+                logger.info(
+                    f"[{body.requestId}] synthèse de description : {time.time() - t_synth:.1f}s"
                 )
                 if synthesized:
                     result.description = synthesized

@@ -7,6 +7,7 @@ import { useI18n } from '../../contexts/I18nContext'
 import { useAnnotatedVideo } from '../../hooks/useAnnotatedVideo'
 import { cn } from '../../lib/cn'
 import { mediaUrl, videoUrl } from '../../services/api'
+import { modelLabel } from '../../utils/formatters'
 import type { InlineAnalysis } from '../../types'
 import { PublishDialog } from '../global/PublishDialog'
 import { BoundingBoxOverlay } from '../result/BoundingBoxOverlay'
@@ -136,7 +137,7 @@ export function AnalysisCardMessage({ analysis }: { analysis: InlineAnalysis }) 
                       value={`${analysis.sourceWidth}×${analysis.sourceHeight}`}
                     />
                   )}
-                  <StatChip icon={ICON_MODEL} label={t('card.stat.model')} value={analysis.model} />
+                  <StatChip icon={ICON_MODEL} label={t('card.stat.model')} value={modelLabel(analysis.type)} />
                 </div>
 
                 <SceneBadge

@@ -22,8 +22,10 @@ interface Props {
   analysisStartedAt?: number | null
   onRetry: () => void
   onDropFile: (file: File) => void
-  /** Service saturé : file d'attente de calcul active. */
-  analyzeBusy?: boolean
+  /** L'analyse affichée est en file d'attente (pas encore en traitement). */
+  queued?: boolean
+  /** Délai estimé (s) avant le démarrage de l'analyse quand le service est saturé ; null sinon. */
+  queueEtaSeconds?: number | null
 }
 
 export function ChatThread({
@@ -37,7 +39,8 @@ export function ChatThread({
   analysisStartedAt,
   onRetry,
   onDropFile,
-  analyzeBusy,
+  queued,
+  queueEtaSeconds,
 }: Props) {
   const { t } = useI18n()
   const scrollRef = useRef<HTMLDivElement>(null)
@@ -101,7 +104,8 @@ export function ChatThread({
               preview={analyzingPreview}
               uploadPct={uploadPct}
               startedAt={analysisStartedAt}
-              busy={analyzeBusy}
+              queued={queued}
+              queueEtaSeconds={queueEtaSeconds}
             />
           )}
 

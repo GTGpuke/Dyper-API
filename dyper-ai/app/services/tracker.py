@@ -142,11 +142,20 @@ class ObjectTracker:
         )
         iou_term = 1.0 - iou(track.predicted_box(), box)
         color_term = _color_distance(track.color, color)
+        # Écart de taille (échelle) avec bande de tolérance : AUCUNE pénalité tant que les dimensions
+        # restent dans un facteur raisonnable (jitter normal, fréquent sur les PETITES boîtes comme des
+        # lunettes), puis la pénalité monte pour un saut d'échelle BRUTAL (objet surgissant). On prend la
+        # pire des deux dimensions (capte aussi un changement d'aspect). En deçà de TRACK_SIZE_TOLERANCE,
+        # le ratio est jugé normal → 0 ; vers 0 (très différent) → 1.
+        w_ratio = min(track.w, box.w) / max(track.w, box.w, 1e-6)
+        h_ratio = min(track.h, box.h) / max(track.h, box.h, 1e-6)
+        size_term = max(0.0, 1.0 - min(w_ratio, h_ratio) / settings.TRACK_SIZE_TOLERANCE)
         label_term = 0.0 if _same_group(track.label, label) else settings.TRACK_LABEL_PENALTY
         return (
             settings.TRACK_W_MOTION * center_dist
             + settings.TRACK_W_IOU * iou_term
             + settings.TRACK_W_APPEARANCE * color_term
+            + settings.TRACK_W_SIZE * size_term
             + label_term
         )
 

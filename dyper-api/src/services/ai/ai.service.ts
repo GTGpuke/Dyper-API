@@ -165,7 +165,10 @@ class AiService {
   /** Vérifie la disponibilité de dyper-ai (utilisé par /health). Ne propage jamais d'erreur. */
   async isHealthy(): Promise<boolean> {
     try {
-      await this.client.get('/health', { timeout: 5000 });
+      // Timeout large : pendant une analyse lourde ou un démarrage à froid (chargement des modèles,
+      // 1re inférence CUDA), dyper-ai peut tarder à répondre quelques secondes sans être en panne.
+      // Une vraie panne (service éteint) renvoie un refus de connexion immédiat, pas un timeout.
+      await this.client.get('/health', { timeout: 15000 });
       return true;
     } catch (e) {
       logger.warn('dyper-ai injoignable lors du health check.', {

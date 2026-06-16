@@ -48,7 +48,10 @@ interface ErrorExample {
  */
 function buildErrorExample(endpoint: ApiEndpoint): ErrorExample | null {
   if (endpoint.auth === 'none') return null
-  const unauthorized = endpoint.auth === 'session' || endpoint.auth === 'appKey+session'
+  const unauthorized =
+    endpoint.auth === 'session' ||
+    endpoint.auth === 'appKey+session' ||
+    endpoint.auth === 'apiKey'
   return {
     status: unauthorized ? 401 : 400,
     body: JSON.stringify(
@@ -107,6 +110,7 @@ export function EndpointSection({ endpoint }: { endpoint: ApiEndpoint }) {
         </code>
         {endpoint.sse && <Badge tone="amber">SSE</Badge>}
         {endpoint.auth === 'session' && <Badge tone="neutral">{t('docs.auth.cookieOnly')}</Badge>}
+        {endpoint.auth === 'apiKey' && <Badge tone="brand">{t('docs.auth.apiKeyBadge')}</Badge>}
         <button
           type="button"
           onClick={copyAnchor}

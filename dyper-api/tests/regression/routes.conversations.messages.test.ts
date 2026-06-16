@@ -83,7 +83,8 @@ async function newConversation(): Promise<string> {
 }
 
 // L'analyse tourne en tâche de fond : on sonde la conversation jusqu'à ce que la carte d'analyse
-// passe de « pending » à « ready » (l'IA est mockée → quelques ms), puis on renvoie les messages.
+// atteigne un état TERMINAL (« ready » ou « error »), au-delà de « queued »/« pending » (l'IA est
+// mockée → quelques ms), puis on renvoie les messages.
 async function waitForAnalysis(id: string, timeoutMs = 5000): Promise<MessageView[]> {
   const start = Date.now();
   while (Date.now() - start < timeoutMs) {
@@ -94,7 +95,8 @@ async function waitForAnalysis(id: string, timeoutMs = 5000): Promise<MessageVie
     });
     const messages = res.json().messages as MessageView[];
     const assistant = messages.find((m) => m.role === 'assistant');
-    if (assistant && assistant.status !== 'pending') return messages;
+    if (assistant && (assistant.status === 'ready' || assistant.status === 'error'))
+      return messages;
     await new Promise((r) => setTimeout(r, 25));
   }
   throw new Error('Analyse non terminée dans le délai imparti.');
@@ -117,12 +119,12 @@ describe('Envoi de messages (/api/conversations/:id/messages)', () => {
     expect(res.statusCode).toBe(201);
     const body = res.json();
 
-    // Réponse immédiate : carte d'analyse en « pending » (traitement en tâche de fond).
+    // Réponse immédiate : carte d'analyse en « queued » (en attente d'un créneau de calcul).
     expect(body.messages).toHaveLength(2);
     expect(body.messages[0].role).toBe('user');
     expect(body.messages[0].attachmentName).toBe('photo.png');
     expect(body.messages[1].kind).toBe('analysis');
-    expect(body.messages[1].status).toBe('pending');
+    expect(body.messages[1].status).toBe('queued');
     expect(body.messages[1].analysis).toBeNull();
     // Auto-titre : repris du texte du premier message (immédiat).
     expect(body.conversation.title).toBe('Que vois-tu ?');
@@ -176,7 +178,7 @@ describe('Envoi de messages (/api/conversations/:id/messages)', () => {
       payload: { text: 'une plage au coucher du soleil' },
     });
     expect(res.statusCode).toBe(201);
-    expect(res.json().messages[1].status).toBe('pending');
+    expect(res.json().messages[1].status).toBe('queued');
     const messages = await waitForAnalysis(id);
     expect(messages[1].kind).toBe('analysis');
     expect(messages[1].analysis?.type).toBe('prompt');
@@ -389,7 +391,7 @@ describe('Envoi de messages (/api/conversations/:id/messages)', () => {
       payload: { text: 'analyse longue' },
     });
     expect(post.statusCode).toBe(201);
-    expect(post.json().messages[1].status).toBe('pending');
+    expect(post.json().messages[1].status).toBe('queued');
 
     // Annulation explicite (bouton Stop).
     const cancel = await app.inject({
@@ -414,6 +416,54 @@ describe('Envoi de messages (/api/conversations/:id/messages)', () => {
       await new Promise((res) => setTimeout(res, 25));
     }
     expect(messages).toHaveLength(0);
+  });
+
+  it('suppression de conversation : l’analyse en tâche de fond est annulée (signal abandonné)', async () => {
+    jest.restoreAllMocks();
+    let captured: AbortSignal | undefined;
+    jest.spyOn(aiService, 'process').mockImplementation(
+      (opts) =>
+        new Promise((_resolve, reject) => {
+          captured = opts.signal;
+          opts.signal?.addEventListener('abort', () =>
+            reject(new DOMException('Analyse annulée.', 'AbortError'))
+          );
+        })
+    );
+
+    const id = await newConversation();
+    const post = await app.inject({
+      method: 'POST',
+      url: `/api/conversations/${id}/messages`,
+      headers: auth.headers,
+      payload: { text: 'analyse longue' },
+    });
+    expect(post.statusCode).toBe(201);
+
+    // Laisse le job démarrer (acquireSlot + process) avant de supprimer.
+    const startWait = Date.now();
+    while (!captured && Date.now() - startWait < 1000) {
+      await new Promise((res) => setTimeout(res, 10));
+    }
+    expect(captured).toBeDefined();
+
+    const del = await app.inject({
+      method: 'DELETE',
+      url: `/api/conversations/${id}`,
+      headers: auth.headers,
+    });
+    expect(del.statusCode).toBe(200);
+
+    // La suppression a interrompu le traitement IA (le signal est abandonné).
+    expect(captured?.aborted).toBe(true);
+
+    // La conversation est bien supprimée.
+    const gone = await app.inject({
+      method: 'GET',
+      url: `/api/conversations/${id}`,
+      headers: auth.headers,
+    });
+    expect(gone.statusCode).toBe(404);
   });
 
   it('purge totale → conversations supprimées, miniatures et vidéos effacées du disque', async () => {

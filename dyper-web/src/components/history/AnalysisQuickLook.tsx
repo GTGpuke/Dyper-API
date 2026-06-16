@@ -8,7 +8,7 @@ import { useI18n } from '../../contexts/I18nContext'
 import { useAnnotatedVideo } from '../../hooks/useAnnotatedVideo'
 import { deleteAnalysis, mediaUrl, videoUrl } from '../../services/api'
 import type { AnalysisRecord, ApiError } from '../../types'
-import { formatDateTime, formatProcessingTime } from '../../utils/formatters'
+import { formatDateTime, formatProcessingTime, modelLabel } from '../../utils/formatters'
 import { BoundingBoxOverlay } from '../result/BoundingBoxOverlay'
 import { ColorPalette } from '../result/ColorPalette'
 import { MusicList } from '../result/MusicList'
@@ -180,7 +180,7 @@ function QuickLookContent({
           <div className="grid grid-cols-2 gap-x-4 gap-y-3 border-t border-ink-100 pt-4 text-sm dark:border-ink-800">
             <Meta label={t('detail.meta.objects')} value={String(record.objects_count)} />
             <Meta label={t('detail.meta.duration')} value={formatProcessingTime(record.processing_time_ms)} />
-            <Meta label={t('detail.meta.model')} value={record.model} mono />
+            <Meta label={t('detail.meta.model')} value={modelLabel(record.type)} />
             <Meta label={t('detail.meta.lang')} value={record.lang.toUpperCase()} />
           </div>
         </div>

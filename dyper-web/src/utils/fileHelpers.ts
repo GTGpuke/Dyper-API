@@ -77,6 +77,42 @@ export function getVideoThumbnail(file: File): Promise<string | null> {
   })
 }
 
+/**
+ * Génère une vignette JPEG (data URL) réduite à partir d'un fichier image. Sert d'aperçu PERSISTANT
+ * pour l'indicateur d'analyse (data URL → survit au reload et au stockage local, contrairement à un
+ * object URL). Retourne null en cas d'échec.
+ */
+export function getImageThumbnail(file: File, maxDim = 320): Promise<string | null> {
+  return new Promise((resolve) => {
+    const url = URL.createObjectURL(file)
+    const img = new Image()
+    img.onload = () => {
+      try {
+        const scale = Math.min(1, maxDim / Math.max(img.width, img.height))
+        const canvas = document.createElement('canvas')
+        canvas.width = Math.max(1, Math.round(img.width * scale))
+        canvas.height = Math.max(1, Math.round(img.height * scale))
+        const ctx = canvas.getContext('2d')
+        if (!ctx) {
+          resolve(null)
+          return
+        }
+        ctx.drawImage(img, 0, 0, canvas.width, canvas.height)
+        resolve(canvas.toDataURL('image/jpeg', 0.7))
+      } catch {
+        resolve(null)
+      } finally {
+        URL.revokeObjectURL(url)
+      }
+    }
+    img.onerror = () => {
+      URL.revokeObjectURL(url)
+      resolve(null)
+    }
+    img.src = url
+  })
+}
+
 // Lit la durée d'une vidéo (secondes) via ses métadonnées, sans la télécharger entièrement.
 export function getVideoDuration(file: File): Promise<number> {
   return new Promise((resolve, reject) => {

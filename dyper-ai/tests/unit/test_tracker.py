@@ -97,6 +97,29 @@ class TestObjectTracker:
         id1 = tracker.update([_obj("car", 50, 50)], img)[0].trackId
         assert id1 != id0
 
+    def test_grossissement_brutal_ne_vole_pas_la_piste(self):
+        """Vérifie qu'un objet grossissant brutalement (échelle très différente) ne capture pas la piste.
+
+        Cas signalé en scène à fort mouvement : un objet surgissant au premier plan se recouvre avec
+        la piste d'une cible plus petite. Le coût de taille empêche le vol → nouvelle piste.
+        """
+        tracker = ObjectTracker()
+        img = _img()
+        id0 = tracker.update([_obj("car", 50, 50, 20, 20)], img)[0].trackId
+        # Grande boîte (~7× plus large) au même endroit la frame suivante.
+        id1 = tracker.update([_obj("car", 25, 25, 150, 150)], img)[0].trackId
+        assert id1 != id0  # Échelle trop différente → pas d'association.
+
+    def test_echelle_progressive_garde_la_piste(self):
+        """Vérifie qu'un changement d'échelle PROGRESSIF (objet qui s'approche) conserve l'identité."""
+        tracker = ObjectTracker()
+        img = _img()
+        ids = []
+        for size in (20, 24, 29, 35):  # Croissance douce (~20 % par frame), centre fixe (60, 60).
+            corner = 60 - size / 2
+            ids.append(tracker.update([_obj("car", corner, corner, size, size)], img)[0].trackId)
+        assert len(set(ids)) == 1  # Une seule identité malgré la croissance progressive.
+
 
 @pytest.mark.unit
 class TestConfusableGroups:

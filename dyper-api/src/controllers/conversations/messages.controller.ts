@@ -94,13 +94,13 @@ function autoTitle(input: MessageInput): string {
 }
 
 // Crée la paire de messages (user + assistant) en transaction, avec auto-titre et touch.
-// `assistantStatus` vaut « pending » pour une carte d'analyse traitée en tâche de fond.
+// `assistantStatus` vaut « queued » pour une carte d'analyse (file de capacité), « ready » sinon.
 async function createMessagePair(
   conversation: Conversation,
   userId: string,
   input: MessageInput,
   assistant: { kind: 'text' | 'analysis'; content: string; analysisRequestId: string | null },
-  assistantStatus: 'pending' | 'ready'
+  assistantStatus: 'queued' | 'pending' | 'ready'
 ): Promise<Message[]> {
   return sequelize.transaction(async (tx) => {
     const seq = await nextSeq(conversation.id, tx);
@@ -157,7 +157,9 @@ export async function postMessage(
     'conversationId' | 'userMessageId' | 'assistantMessageId' | 'titleFromDescription'
   > | null = null;
   let assistant: { kind: 'text' | 'analysis'; content: string; analysisRequestId: string | null };
-  let pendingStatus: 'pending' | 'ready' = 'ready';
+  // Statut initial de la carte assistant : une analyse part « queued » (elle passera par la file de
+  // capacité avant d'être traitée — cf. analysis-job) ; une réponse de chat est directement « ready ».
+  let initialStatus: 'queued' | 'ready' = 'ready';
 
   if (input.fileBuffer && input.mimetype) {
     // Branche 1 — fichier joint : analyse image/vidéo (tâche de fond).
@@ -176,7 +178,7 @@ export async function postMessage(
       lang: input.lang,
     };
     assistant = { kind: 'analysis', content: '', analysisRequestId: requestId };
-    pendingStatus = 'pending';
+    initialStatus = 'queued';
   } else if (input.url) {
     // Branche 1 bis — analyse par URL : vidéo de plateforme (YouTube / Twitch) ou image.
     const isVideo = isVideoPlatformUrl(input.url);
@@ -194,7 +196,7 @@ export async function postMessage(
       lang: input.lang,
     };
     assistant = { kind: 'analysis', content: '', analysisRequestId: requestId };
-    pendingStatus = 'pending';
+    initialStatus = 'queued';
   } else {
     const context = await latestAnalysis(conversation.id, userId);
     if (context) {
@@ -233,14 +235,14 @@ export async function postMessage(
         lang: input.lang,
       };
       assistant = { kind: 'analysis', content: '', analysisRequestId: requestId };
-      pendingStatus = 'pending';
+      initialStatus = 'queued';
     }
   }
 
   // Auto-titre depuis la description : seulement pour un média sans texte, au premier échange.
   const titleFromDescription = !input.text && conversation.title === DEFAULT_CONVERSATION_TITLE;
 
-  const pair = await createMessagePair(conversation, userId, input, assistant, pendingStatus);
+  const pair = await createMessagePair(conversation, userId, input, assistant, initialStatus);
 
   // Analyse : lancée en tâche de fond (détachée de la requête) — elle survit au reload/à la fermeture.
   if (jobSpec) {

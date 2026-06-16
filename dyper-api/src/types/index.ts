@@ -265,8 +265,11 @@ export type MessageRole = 'user' | 'assistant';
 /** Nature d'un message : texte libre ou carte d'analyse. */
 export type MessageKind = 'text' | 'analysis';
 
-/** Cycle de vie d'une carte d'analyse (les messages texte sont toujours « ready »). */
-export type MessageStatus = 'pending' | 'ready' | 'error';
+/**
+ * Cycle de vie d'une carte d'analyse (les messages texte sont toujours « ready ») :
+ * `queued` (en file d'attente de calcul) → `pending` (traitement en cours) → `ready` / `error`.
+ */
+export type MessageStatus = 'queued' | 'pending' | 'ready' | 'error';
 
 /** Analyse inlinée dans un message assistant (vue construite pour le client). */
 export interface InlineAnalysis {

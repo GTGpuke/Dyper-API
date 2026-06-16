@@ -3,7 +3,7 @@
 import pytest
 from app.routes.process import (
     build_detection_summary,
-    drop_transient_tracks,
+    drop_brief_tracks,
     fill_track_gaps,
     stabilize_track_labels,
 )
@@ -135,44 +135,84 @@ class TestStabilizeTrackLabels:
         assert [frame.objects[0].label for frame in frames] == ["car", "bus"]
 
 
-@pytest.mark.unit
-class TestDropTransientTracks:
-    """Tests du filtre des pistes fugaces (hallucinations brèves du vocabulaire ouvert)."""
-
-    def test_piste_trop_courte_ecartee(self):
-        """Vérifie qu'une piste vue sur trop peu de frames est retirée, la durable conservée."""
-        frames = [
-            FrameDetections(t=0.0, objects=[_obj("cat", 1, 0.9), _obj("birdbath", 2, 0.8)]),
-            FrameDetections(t=1.0, objects=[_obj("cat", 1, 0.9)]),
-            FrameDetections(t=2.0, objects=[_obj("cat", 1, 0.9)]),
+def _video(times: list[float], present: dict[int, tuple[str, set[int]]]) -> list[FrameDetections]:
+    """Construit une séquence : `present` mappe un trackId → (label, indices de frames où il paraît)."""
+    frames: list[FrameDetections] = []
+    for index, t in enumerate(times):
+        objects = [
+            _obj(label, track, 0.9)
+            for track, (label, frame_indices) in present.items()
+            if index in frame_indices
         ]
-        drop_transient_tracks(frames, min_frames=3)
+        frames.append(FrameDetections(t=t, objects=objects))
+    return frames
+
+
+# Cadence d'échantillonnage des tests : 10 img/s (pas de 0,1 s), comme la valeur par défaut.
+_T13 = [round(i * 0.1, 1) for i in range(13)]  # 0,0 → 1,2 s.
+
+
+@pytest.mark.unit
+class TestDropBriefTracks:
+    """Tests de la persistance CUMULÉE : un objet doit totaliser assez de frames de détection.
+
+    À 10 img/s (pas de 0,1 s) : min_seconds=1.0 → 10 frames minimum, min_seconds=0.5 → 5 frames.
+    """
+
+    def test_piste_breve_ecartee(self):
+        """Vérifie qu'une piste vue sur trop peu de frames AU TOTAL est retirée, la durable conservée."""
+        # cat#1 : 12 frames (1,2 s cumulés). flash#2 : 1 frame. dog#3 : 1 frame.
+        frames = _video(
+            _T13,
+            {1: ("cat", set(range(12))), 2: ("flash", {0}), 3: ("dog", {12})},
+        )
+        drop_brief_tracks(frames, min_seconds=1.0)
         labels = [obj.label for frame in frames for obj in frame.objects]
-        assert "birdbath" not in labels  # Piste fugace (1 frame) écartée.
-        assert labels.count("cat") == 3  # Piste durable (3 frames) conservée.
+        assert "flash" not in labels  # Piste fugace (1 frame) écartée.
+        assert "dog" not in labels  # Piste brève écartée.
+        assert labels.count("cat") == 12  # Piste durable (≥ 10 frames) conservée.
+
+    def test_intermittence_conservee(self):
+        """Vérifie qu'un objet du vocabulaire ouvert détecté PAR INTERMITTENCE est conservé (richesse).
+
+        Cas des mug / cup / glasses / suit : le détecteur ouvert clignote (frames non consécutives,
+        trous parfois longs) mais l'objet est bien présent. Le cumul de frames suffit → conservé,
+        là où un critère de présence CONTINUE l'éliminait à tort.
+        """
+        # mug#9 : 7 frames très espacées (indices 0,2,4,6,8,10,12), aucune consécutive — 0,7 s cumulés.
+        frames = _video(
+            _T13,
+            {1: ("road", set(range(13))), 9: ("mug", {0, 2, 4, 6, 8, 10, 12})},
+        )
+        drop_brief_tracks(frames, min_seconds=0.5)  # 0,5 s → 5 frames minimum.
+        labels = [obj.label for frame in frames for obj in frame.objects]
+        assert labels.count("mug") == 7  # 7 frames cumulées ≥ 5 → conservée malgré l'intermittence.
+
+    def test_piste_sur_toute_la_sequence_conservee(self):
+        """Vérifie qu'une piste présente sur TOUT le clip court (< min_seconds) n'est jamais filtrée."""
+        frames = _video([0.0, 0.3], {1: ("dog", {0, 1})})
+        drop_brief_tracks(frames, min_seconds=1.0)
+        assert [obj.label for frame in frames for obj in frame.objects] == ["dog", "dog"]
 
     def test_objets_sans_piste_conserves(self):
         """Vérifie que les détections sans trackId ne sont jamais filtrées."""
-        frames = [FrameDetections(t=0.0, objects=[_obj("musique", None, 0.8)])]
-        drop_transient_tracks(frames, min_frames=3)
-        assert [obj.label for obj in frames[0].objects] == ["musique"]
+        frames = _video(_T13, {1: ("road", set(range(13)))})
+        frames[0].objects.append(_obj("musique", None, 0.8))  # Objet non suivi sur une seule frame.
+        drop_brief_tracks(frames, min_seconds=1.0)
+        assert "musique" in [obj.label for frame in frames for obj in frame.objects]
 
     def test_listes_miroir_filtrees_aussi(self):
         """Vérifie que les listes miroir (objets agrégés) sont filtrées de la même piste fugace."""
-        fugace = _obj("necklace", 9, 0.7)
-        frames = [
-            FrameDetections(t=0.0, objects=[_obj("dog", 1, 0.9), fugace]),
-            FrameDetections(t=1.0, objects=[_obj("dog", 1, 0.9)]),
-        ]
+        frames = _video(_T13, {1: ("dog", set(range(13))), 9: ("necklace", {0})})
         agrege = [_obj("dog", 1, 0.9), _obj("necklace", 9, 0.7)]
-        drop_transient_tracks(frames, min_frames=2, mirrors=[agrege])
+        drop_brief_tracks(frames, min_seconds=1.0, mirrors=[agrege])
         assert [obj.label for obj in agrege] == ["dog"]  # La piste fugace 9 a disparu du miroir.
 
-    def test_seuil_un_desactive_le_filtre(self):
-        """Vérifie qu'un seuil ≤ 1 conserve toutes les pistes (filtre désactivé)."""
-        frames = [FrameDetections(t=0.0, objects=[_obj("birdbath", 2, 0.8)])]
-        drop_transient_tracks(frames, min_frames=1)
-        assert [obj.label for obj in frames[0].objects] == ["birdbath"]
+    def test_seuil_zero_desactive_le_filtre(self):
+        """Vérifie qu'un seuil ≤ 0 conserve toutes les pistes (filtre désactivé)."""
+        frames = _video([0.0, 0.5], {2: ("birdbath", {0}), 3: ("wall", {1})})
+        drop_brief_tracks(frames, min_seconds=0.0)
+        assert [obj.label for frame in frames for obj in frame.objects] == ["birdbath", "wall"]
 
 
 @pytest.mark.unit

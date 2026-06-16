@@ -21,7 +21,7 @@ import { ErrorBanner } from '../components/ui/ErrorBanner'
 import { useAnalysis } from '../hooks/useAnalysis'
 import { useAnnotatedVideo } from '../hooks/useAnnotatedVideo'
 import { useI18n } from '../contexts/I18nContext'
-import { formatDateTime, formatProcessingTime } from '../utils/formatters'
+import { formatDateTime, formatProcessingTime, modelLabel } from '../utils/formatters'
 
 function Section({ title, children }: { title: string; children: ReactNode }) {
   return (
@@ -212,7 +212,7 @@ export function DetailPage() {
               <div className="surface flex flex-col gap-4 p-5">
                 <h3 className="eyebrow">{t('detail.meta')}</h3>
                 <Meta label={t('detail.meta.objects')} value={String(analysis.objects_count)} />
-                <Meta label={t('detail.meta.model')} value={analysis.model} mono />
+                <Meta label={t('detail.meta.model')} value={modelLabel(analysis.type)} />
                 <Meta label={t('detail.meta.duration')} value={formatProcessingTime(analysis.processing_time_ms)} />
                 <Meta label={t('detail.meta.lang')} value={analysis.lang.toUpperCase()} />
                 <Meta label={t('detail.meta.requestId')} value={analysis.request_id} mono small />

@@ -29,8 +29,13 @@ interface Props {
   startedAt?: number | null
   /** Interrompt l'analyse en cours (bouton Stop). Masqué si absent. */
   onCancel?: () => void
-  /** Service saturé : une file d'attente de calcul est active (allocation de capacité). */
-  busy?: boolean
+  /** L'analyse est EN FILE d'attente (pas encore en traitement) : afficher l'attente, pas la progression. */
+  queued?: boolean
+  /**
+   * Délai estimé (s) avant le démarrage de l'analyse quand elle est en file (file d'attente de calcul).
+   * Null si inconnu / service non saturé.
+   */
+  queueEtaSeconds?: number | null
 }
 
 // Part de la barre réservée au téléversement réel ; le reste suit l'estimation.
@@ -63,6 +68,45 @@ const STEPS_VIDEO = [
 // service est chargé. En vidéo, l'avertissement de durée s'y ajoute.
 const NOTICES_COMMON = ['analyzing.notice.scan', 'analyzing.notice.busy', 'analyzing.notice.quality']
 
+// Sablier SVG animé : la silhouette se retourne en boucle pendant que le « sable » s'écoule,
+// en remplacement de l'émoji ⏳ pour un rendu net et cohérent avec le thème.
+function Hourglass() {
+  return (
+    <motion.svg
+      width="12"
+      height="12"
+      viewBox="0 0 24 24"
+      fill="none"
+      aria-hidden="true"
+      className="shrink-0 text-ink-400 dark:text-ink-500"
+      style={{ transformOrigin: '50% 50%' }}
+      animate={{ rotate: [0, 0, 180, 180] }}
+      transition={{ duration: 2.4, times: [0, 0.45, 0.6, 1], repeat: Infinity, ease: 'easeInOut' }}
+    >
+      {/* Cadre du sablier. */}
+      <path
+        d="M6 3h12M6 21h12M7 3v3.5a2 2 0 0 0 .6 1.4L12 12l4.4-4.1a2 2 0 0 0 .6-1.4V3M7 21v-3.5a2 2 0 0 1 .6-1.4L12 12l4.4 4.1a2 2 0 0 1 .6 1.4V21"
+        stroke="currentColor"
+        strokeWidth="1.5"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+      {/* Filet de sable qui s'écoule. */}
+      <motion.line
+        x1="12"
+        y1="11"
+        x2="12"
+        y2="13"
+        stroke="currentColor"
+        strokeWidth="1.5"
+        strokeLinecap="round"
+        animate={{ opacity: [0, 1, 1, 0] }}
+        transition={{ duration: 2.4, times: [0, 0.1, 0.4, 0.5], repeat: Infinity, ease: 'linear' }}
+      />
+    </motion.svg>
+  )
+}
+
 // Estimation de la durée de traitement (secondes) selon le média.
 function estimateProcessing(preview: AnalyzingPreview | null): number {
   if (!preview?.isVideo) return 8
@@ -71,17 +115,32 @@ function estimateProcessing(preview: AnalyzingPreview | null): number {
   return 150
 }
 
-export function AnalyzingIndicator({ preview, uploadPct, startedAt, onCancel, busy }: Props) {
+export function AnalyzingIndicator({
+  preview,
+  uploadPct,
+  startedAt,
+  onCancel,
+  queued,
+  queueEtaSeconds,
+}: Props) {
   const { t } = useI18n()
   const [elapsed, setElapsed] = useState(0)
   const startRef = useRef<number | null>(null)
+  // En file d'attente : le traitement n'a PAS commencé → on n'affiche aucune progression, juste
+  // l'attente (et le délai estimé). La progression reprend de zéro dès que le traitement démarre.
+  const waiting = queued === true
   // Au reload / retour sur la conversation, l'analyse a déjà démarré côté serveur (pas de
   // téléversement à attendre) : on considère le transfert terminé.
   const uploadDone = startedAt != null || uploadPct === null || uploadPct >= 100
 
-  // Horloge du temps écoulé : calée sur l'instant serveur quand il est connu (stable d'un montage
-  // à l'autre — reload, changement de conversation), sinon démarrée à la fin du téléversement.
+  // Horloge du temps écoulé : gelée tant qu'on est en file (le traitement n'a pas commencé) ; sinon
+  // calée sur l'instant serveur quand il est connu (stable au reload), à défaut sur le démarrage du
+  // traitement. Repartir de zéro à la sortie de la file évite que la barre saute en avant.
   useEffect(() => {
+    if (waiting) {
+      setElapsed(0)
+      return
+    }
     if (startedAt == null && !uploadDone) return
     const base = startedAt ?? (startRef.current ?? Date.now())
     if (startedAt == null) startRef.current = base
@@ -89,29 +148,40 @@ export function AnalyzingIndicator({ preview, uploadPct, startedAt, onCancel, bu
     tick()
     const timer = setInterval(tick, 500)
     return () => clearInterval(timer)
-  }, [uploadDone, startedAt])
+  }, [waiting, uploadDone, startedAt])
 
   const estimate = estimateProcessing(preview)
-  const pct = uploadDone
-    ? Math.min(95, UPLOAD_SHARE + (95 - UPLOAD_SHARE) * Math.min(1, elapsed / estimate))
-    : ((uploadPct ?? 0) / 100) * UPLOAD_SHARE
+  const pct = waiting
+    ? 6 // Remplissage symbolique « en attente » (la barre n'avance pas tant que rien n'est traité).
+    : uploadDone
+      ? Math.min(95, UPLOAD_SHARE + (95 - UPLOAD_SHARE) * Math.min(1, elapsed / estimate))
+      : ((uploadPct ?? 0) / 100) * UPLOAD_SHARE
 
-  // Rotation des phrases (~3,5 s), téléversement affiché en priorité.
+  // Rotation des phrases (~3,5 s) ; en file → phrase d'attente ; sinon téléversement prioritaire.
   const phrases = preview?.isVideo ? PHRASES_VIDEO : PHRASES_IMAGE
-  const phraseKey = uploadDone
-    ? phrases[Math.floor(elapsed / 3.5) % phrases.length]
-    : 'analyzing.upload'
+  const phraseKey = waiting
+    ? 'analyzing.queued'
+    : uploadDone
+      ? phrases[Math.floor(elapsed / 3.5) % phrases.length]
+      : 'analyzing.upload'
 
-  // Étape active de la frise, calée sur la fraction de progression post-téléversement.
+  // Étape active de la frise, calée sur la fraction de progression post-téléversement (aucune en file).
   const steps = preview?.isVideo ? STEPS_VIDEO : STEPS_IMAGE
   const fraction = Math.max(0, pct - UPLOAD_SHARE) / (95 - UPLOAD_SHARE)
-  const activeStep = uploadDone ? Math.min(steps.length - 1, Math.floor(fraction * steps.length)) : -1
+  const activeStep =
+    !waiting && uploadDone ? Math.min(steps.length - 1, Math.floor(fraction * steps.length)) : -1
 
   // Temps estimé restant (décompte doux) + message de réassurance en rotation (~5 s).
   const remaining = Math.max(0, estimate - elapsed)
   const notices = preview?.isVideo ? [...NOTICES_COMMON, 'analyzing.longNotice'] : NOTICES_COMMON
-  // En cas de file d'attente de calcul (service saturé), le message de saturation prime.
-  const noticeKey = busy ? 'analyzing.queueBusy' : notices[Math.floor(elapsed / 5) % notices.length]
+  // En file d'attente : on annonce le délai estimé avant le démarrage (sinon message générique).
+  const hasEta = queueEtaSeconds != null && queueEtaSeconds > 0
+  const noticeKey = waiting ? 'analyzing.queued' : notices[Math.floor(elapsed / 5) % notices.length]
+  const noticeText = waiting
+    ? hasEta
+      ? t('analyzing.queueWait', { time: formatTimecode(queueEtaSeconds) })
+      : t('analyzing.queueBusy')
+    : t(noticeKey)
 
   return (
     <motion.div
@@ -138,6 +208,9 @@ export function AnalyzingIndicator({ preview, uploadPct, startedAt, onCancel, bu
             ) : (
               <img src={preview.url} alt="" className="h-full w-full object-cover opacity-90" />
             )
+          ) : preview?.thumbnailUrl ? (
+            // Pas de lecture live (reload, autre analyse, lien plateforme) → vignette statique persistée.
+            <img src={preview.thumbnailUrl} alt="" className="h-full w-full object-cover opacity-90" />
           ) : (
             <div className="grid h-full w-full place-items-center text-ink-500">
               <svg className="h-9 w-9" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6">
@@ -276,7 +349,8 @@ export function AnalyzingIndicator({ preview, uploadPct, startedAt, onCancel, bu
       {/* Réassurance en rotation + temps estimé restant (image et vidéo). */}
       {uploadDone && (
         <div className="flex items-center justify-between gap-3 text-xs text-ink-400 dark:text-ink-500">
-          <div className="h-4 min-w-0 flex-1 overflow-hidden">
+          <div className="flex h-4 min-w-0 flex-1 items-center gap-1.5 overflow-hidden">
+            <Hourglass />
             <AnimatePresence mode="wait">
               <motion.p
                 key={noticeKey}
@@ -284,17 +358,20 @@ export function AnalyzingIndicator({ preview, uploadPct, startedAt, onCancel, bu
                 animate={{ opacity: 1, y: 0 }}
                 exit={{ opacity: 0, y: -6 }}
                 transition={{ duration: 0.25 }}
-                className="truncate"
+                className="min-w-0 flex-1 truncate"
               >
-                ⏳ {t(noticeKey)}
+                {noticeText}
               </motion.p>
             </AnimatePresence>
           </div>
-          <span className="shrink-0 font-mono tabular-nums">
-            {remaining > 1
-              ? t('analyzing.eta', { time: formatTimecode(remaining) })
-              : t('analyzing.almostDone')}
-          </span>
+          {/* Le décompte « restant » n'a de sens qu'en cours de traitement (pas en file d'attente). */}
+          {!waiting && (
+            <span className="shrink-0 font-mono tabular-nums">
+              {remaining > 1
+                ? t('analyzing.eta', { time: formatTimecode(remaining) })
+                : t('analyzing.almostDone')}
+            </span>
+          )}
         </div>
       )}
     </motion.div>

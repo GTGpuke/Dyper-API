@@ -16,12 +16,14 @@ import { usePlan } from '../hooks/usePlan'
 import * as api from '../services/api'
 import type { PendingAttachment } from '../types'
 import {
+  getImageThumbnail,
   getVideoDuration,
   getVideoThumbnail,
   isVideoFile,
   validateFile,
   VIDEO_MAX_DURATION_S,
 } from '../utils/fileHelpers'
+import { loadPreview, savePreview } from '../utils/previewStore'
 import { isVideoAttachment, isVideoPlatformUrl, youtubeThumbnailUrl } from '../utils/videoUrl'
 
 export function ChatPage() {
@@ -55,19 +57,37 @@ export function ChatPage() {
 
   const showNotifOffer = Boolean(awayConversationId) && notifPermission === 'default' && !notifOfferDismissed
 
+  // Toast « analyse prête » : se ferme dès qu'on ouvre la conversation concernée…
+  const { readyConversationId, dismissReady } = thread
+  useEffect(() => {
+    if (readyConversationId && readyConversationId === conversationId) dismissReady()
+  }, [conversationId, readyConversationId, dismissReady])
+  // …et s'efface automatiquement après quelques secondes.
+  useEffect(() => {
+    if (!readyConversationId) return
+    const timer = window.setTimeout(dismissReady, 8000)
+    return () => window.clearTimeout(timer)
+  }, [readyConversationId, dismissReady])
+
   const [attachment, setAttachment] = useState<PendingAttachment | null>(null)
   const [checking, setChecking] = useState(false)
   const [attachmentError, setAttachmentError] = useState<string | null>(null)
-  // Aperçu du média en cours d'analyse (affiché par l'indicateur de progression).
+  // Aperçu LOCAL du média en cours d'analyse (vignette/lecture en direct, affiché par l'indicateur).
   const [analyzingPreview, setAnalyzingPreview] = useState<AnalyzingPreview | null>(null)
-  // Service saturé : une file d'attente de calcul est active côté passerelle (sondée pendant l'analyse).
-  const [analyzeBusy, setAnalyzeBusy] = useState(false)
+  // Conversation à laquelle appartient cet aperçu local. Indispensable quand PLUSIEURS analyses
+  // tournent en parallèle : sans ce rattachement, l'aperçu de la dernière analyse lancée s'afficherait
+  // dans TOUTES les conversations (y compris celles d'une autre analyse). `undefined` = pas encore
+  // rattaché (cas d'une conversation tout juste créée, dont l'id arrive après l'envoi).
+  const [previewOwner, setPreviewOwner] = useState<string | undefined>(undefined)
+  // File d'attente de calcul côté passerelle (sondée pendant l'analyse) : null si le service n'est
+  // pas saturé, sinon une estimation du délai avant le démarrage de CETTE analyse.
+  const [queueEtaSeconds, setQueueEtaSeconds] = useState<number | null>(null)
 
-  // Pendant une analyse, on sonde périodiquement la charge de la passerelle afin d'avertir
-  // l'utilisateur si le service est saturé (allocation de capacité, file d'attente de calcul).
+  // Pendant une analyse, on sonde périodiquement la charge de la passerelle afin d'informer
+  // l'utilisateur quand le service est saturé : combien de temps avant que son analyse démarre.
   useEffect(() => {
     if (!thread.sending) {
-      setAnalyzeBusy(false)
+      setQueueEtaSeconds(null)
       return
     }
     let active = true
@@ -75,7 +95,14 @@ export function ChatPage() {
       void api
         .getCapacity()
         .then((c) => {
-          if (active) setAnalyzeBusy(c.queued > 0)
+          if (!active) return
+          // Avec `maxConcurrent` créneaux qui se libèrent ~toutes les `avgAnalysisSeconds`, le délai
+          // avant qu'une analyse en file démarre ≈ (rangs devant / créneaux) × durée moyenne.
+          const eta =
+            c.queued > 0
+              ? Math.ceil(c.queued / Math.max(1, c.maxConcurrent)) * c.avgAnalysisSeconds
+              : null
+          setQueueEtaSeconds(eta)
         })
         .catch(() => undefined)
     }
@@ -105,13 +132,14 @@ export function ChatPage() {
     })
   }, [])
 
-  // Fin d'analyse : l'aperçu transféré est révoqué.
+  // Plus aucune analyse en cours : l'aperçu transféré est révoqué et son rattachement effacé.
   useEffect(() => {
     if (thread.sending) return
     setAnalyzingPreview((prev) => {
       if (prev?.url) URL.revokeObjectURL(prev.url)
       return null
     })
+    setPreviewOwner(undefined)
   }, [thread.sending])
 
   // Démontage et changement de conversation : tout est nettoyé.
@@ -194,19 +222,33 @@ export function ChatPage() {
     const current = attachment
     setAttachmentError(null)
     if (current?.kind === 'file') {
-      // L'aperçu est transféré à l'indicateur d'analyse (révoqué en fin d'envoi).
+      // Vignette PERSISTANTE (data URL) : image → générée ; vidéo → première frame déjà extraite.
+      // Elle survit au reload et au stockage local (l'object URL `previewUrl` ne sert qu'au live).
+      const thumbnailUrl = current.isVideo
+        ? current.thumbnailUrl
+        : await getImageThumbnail(current.file)
+      // L'aperçu est transféré à l'indicateur d'analyse (révoqué en fin d'envoi). On le rattache à la
+      // conversation courante (undefined si elle est en cours de création → rattaché ensuite).
       setAnalyzingPreview({
         url: current.previewUrl,
         isVideo: current.isVideo,
         name: current.file.name,
         durationS: current.durationS ?? null,
-        thumbnailUrl: current.thumbnailUrl,
+        thumbnailUrl,
       })
+      setPreviewOwner(conversationId)
       setAttachment(null)
     } else {
       if (current?.kind === 'url' && isVideoPlatformUrl(current.url)) {
-        // Lien YouTube/Twitch : pas d'aperçu local, mais l'indicateur sait que c'est long.
-        setAnalyzingPreview({ url: null, isVideo: true, name: current.url, durationS: null })
+        // Lien YouTube/Twitch : pas de lecture live, mais une vignette publique (YouTube) si dispo.
+        setAnalyzingPreview({
+          url: null,
+          isVideo: true,
+          name: current.url,
+          durationS: null,
+          thumbnailUrl: youtubeThumbnailUrl(current.url),
+        })
+        setPreviewOwner(conversationId)
       }
       replaceAttachment(null)
     }
@@ -231,6 +273,45 @@ export function ChatPage() {
   // L'indicateur d'analyse n'est montré que dans la discussion où l'analyse a été lancée
   // (corrige la fuite de l'encadré de progression vers les autres conversations).
   const analyzingHere = thread.sending && thread.analyzingConversationId === conversationId
+  // L'analyse affichée est en file d'attente (pas encore en traitement) : l'indicateur montre
+  // l'attente + le délai estimé plutôt qu'une fausse progression.
+  const queuedHere = analyzingHere && thread.analyzingQueued
+
+  // Conversation tout juste créée : on rattache l'aperçu local (lancé sans id connu) à l'id obtenu
+  // après navigation, dès lors que c'est bien la conversation affichée en analyse.
+  useEffect(() => {
+    if (analyzingPreview && previewOwner === undefined && conversationId && analyzingHere) {
+      setPreviewOwner(conversationId)
+    }
+  }, [analyzingPreview, previewOwner, conversationId, analyzingHere])
+
+  // L'aperçu local n'est utilisé que pour SA conversation ; sinon (autre analyse affichée) on
+  // retombe sur l'aperçu reconstruit côté serveur → aucune contamination entre conversations.
+  const ownPreview = previewOwner === conversationId ? analyzingPreview : null
+
+  // Persiste la vignette de l'analyse en cours (par conversation) dès qu'elle est rattachée : permet
+  // de la retrouver AU RELOAD et quand une autre analyse occupe l'état local (cf. previewStore).
+  useEffect(() => {
+    if (previewOwner && previewOwner === conversationId && analyzingPreview?.thumbnailUrl) {
+      savePreview(
+        previewOwner,
+        {
+          isVideo: analyzingPreview.isVideo,
+          name: analyzingPreview.name,
+          durationS: analyzingPreview.durationS,
+          thumbnailUrl: analyzingPreview.thumbnailUrl,
+        },
+        Date.now()
+      )
+    }
+  }, [analyzingPreview, previewOwner, conversationId])
+
+  // Aperçu persisté (localStorage) de CETTE conversation : pris en relais quand l'aperçu live est
+  // absent (reload, ou analyse concurrente qui occupe l'état local).
+  const storedPreview = useMemo(
+    () => (analyzingHere && !ownPreview && conversationId ? loadPreview(conversationId) : null),
+    [analyzingHere, ownPreview, conversationId]
+  )
 
   // Message utilisateur ayant déclenché l'analyse en cours (le dernier message « user » du fil).
   // Au reload / retour sur la conversation, l'aperçu local est perdu : on reconstruit l'essentiel
@@ -242,20 +323,22 @@ export function ChatPage() {
   }, [analyzingHere, thread.messages])
 
   const fallbackPreview = useMemo<AnalyzingPreview | null>(() => {
-    if (!analyzingHere || analyzingPreview || !pendingUserMessage) return null
-    return {
-      url: null,
-      isVideo: isVideoAttachment(pendingUserMessage.attachmentName),
-      name: pendingUserMessage.attachmentName,
-      durationS: null,
-    }
-  }, [analyzingHere, analyzingPreview, pendingUserMessage])
+    if (!analyzingHere || ownPreview || storedPreview || !pendingUserMessage) return null
+    const name = pendingUserMessage.attachmentName
+    // Vignette dérivable du libellé : miniature YouTube, ou URL d'image directe ; sinon icône.
+    const isUrl = name ? /^https?:\/\//i.test(name) : false
+    const isVideo = isVideoAttachment(name)
+    const thumbnailUrl = name
+      ? (youtubeThumbnailUrl(name) ?? (isUrl && !isVideo ? name : null))
+      : null
+    return { url: null, isVideo, name, durationS: null, thumbnailUrl }
+  }, [analyzingHere, ownPreview, storedPreview, pendingUserMessage])
 
-  const indicatorPreview = analyzingPreview ?? fallbackPreview
-  // Calage serveur seulement en l'absence d'aperçu local (reload / retour) : sinon l'envoi frais
-  // garde son horloge locale (qui démarre proprement à la fin du téléversement).
+  const indicatorPreview = ownPreview ?? storedPreview ?? fallbackPreview
+  // Calage serveur seulement en l'absence d'aperçu local de CETTE conversation (reload / retour, ou
+  // autre analyse) : sinon l'envoi frais garde son horloge locale (démarrée à la fin du téléversement).
   const analysisStartedAt =
-    !analyzingPreview && pendingUserMessage ? Date.parse(pendingUserMessage.createdAt) : null
+    !ownPreview && pendingUserMessage ? Date.parse(pendingUserMessage.createdAt) : null
 
   // Conversation vierge : héros de dépôt plein écran (sans le fil).
   const showHero =
@@ -295,7 +378,8 @@ export function ChatPage() {
             analysisStartedAt={analysisStartedAt}
             onRetry={() => void thread.retry()}
             onDropFile={(file) => void attachFile(file)}
-            analyzeBusy={analyzeBusy}
+            queued={queuedHere}
+            queueEtaSeconds={queueEtaSeconds}
           />
           {thread.quotaError && (
             <div className="mx-auto mb-2 flex w-full max-w-3xl items-center gap-3 rounded-xl border border-amber-300/60 bg-amber-50 px-4 py-3 dark:border-amber-500/30 dark:bg-amber-500/10">
@@ -347,10 +431,45 @@ export function ChatPage() {
         </>
       )}
 
-      {/* Invite à activer une notification : uniquement quand un traitement tourne dans une AUTRE
-          conversation que celle affichée. Disparaît dès qu'on a choisi (ou à la fin de l'opération). */}
+      {/* Toast « analyse prête » (cliquable) — en bas à gauche. Concerne une conversation AUTRE
+          que celle affichée. */}
+      {readyConversationId && (
+        <div className="pointer-events-none fixed bottom-4 left-4 z-40">
+          <div className="surface pointer-events-auto flex items-center gap-3 px-4 py-3 shadow-card-hover">
+            <svg className="h-5 w-5 shrink-0 text-emerald-500" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <path d="M22 11.08V12a10 10 0 1 1-5.93-9.14" />
+              <path d="M22 4 12 14.01l-3-3" />
+            </svg>
+            <p className="text-sm text-ink-700 dark:text-ink-200">{t('notify.analysisReady')}</p>
+            <button
+              type="button"
+              onClick={() => {
+                const target = readyConversationId
+                dismissReady()
+                navigate(`/c/${target}`)
+              }}
+              className="shrink-0 rounded-lg bg-gradient-to-r from-blue-500 to-violet-600 px-3 py-1.5 text-xs font-semibold text-white"
+            >
+              {t('notify.open')}
+            </button>
+            <button
+              type="button"
+              onClick={dismissReady}
+              aria-label={t('notify.dismiss')}
+              className="shrink-0 text-ink-400 hover:text-ink-600 dark:hover:text-ink-200"
+            >
+              <svg className="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                <path d="M6 6l12 12M18 6 6 18" strokeLinecap="round" />
+              </svg>
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* Invite à activer les notifications système — en haut à DROITE. Apparaît quand un traitement
+          tourne dans une conversation AUTRE que celle affichée. */}
       {showNotifOffer && (
-        <div className="pointer-events-none fixed inset-x-0 bottom-4 z-40 flex justify-center px-4">
+        <div className="pointer-events-none fixed right-4 top-4 z-40">
           <div className="surface pointer-events-auto flex items-center gap-3 px-4 py-3 shadow-card-hover">
             <svg className="h-5 w-5 shrink-0 text-violet-500" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
               <path d="M18 8a6 6 0 0 0-12 0c0 7-3 9-3 9h18s-3-2-3-9M13.7 21a2 2 0 0 1-3.4 0" />

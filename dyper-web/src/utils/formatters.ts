@@ -1,4 +1,13 @@
 // Fonctions utilitaires de formatage pour l'affichage des données dans l'interface.
+import type { AnalyzeType } from '../types'
+
+// Nom de modèle affiché à l'utilisateur : on masque les modèles techniques (yolo…) derrière une
+// marque cohérente selon le type de média analysé.
+export function modelLabel(type: AnalyzeType): string {
+  if (type === 'video') return 'Dyper Video'
+  if (type === 'image') return 'Dyper Image'
+  return 'Dyper'
+}
 
 // Formate un score de confiance (0.0–1.0) en pourcentage lisible.
 export function formatConfidence(value: number): string {

@@ -272,6 +272,7 @@ const fr: Dict = {
   'notify.analysisReady': 'Votre analyse Dyper est prête',
   'notify.answerReady': 'Dyper a répondu',
   'notify.body': 'Cliquez pour ouvrir la conversation.',
+  'notify.open': 'Ouvrir',
   'loading.tagline': 'Préparation de votre espace…',
   'notFound.title': 'Page introuvable',
   'notFound.desc':
@@ -326,6 +327,8 @@ const fr: Dict = {
   'analyzing.stop': "Arrêter l'analyse",
   'analyzing.queueBusy':
     'Service très sollicité — votre analyse démarre dès qu’un créneau de calcul se libère.',
+  'analyzing.queued': 'En file d’attente…',
+  'analyzing.queueWait': 'Forte affluence — votre analyse devrait démarrer dans ~{time}.',
   'analyzing.notice.scan': 'Chaque détail du média est inspecté — merci de patienter.',
   'analyzing.notice.busy':
     'Si le service est très sollicité, le traitement peut ralentir — désolé pour l’attente.',
@@ -408,7 +411,7 @@ const fr: Dict = {
   'docs.section.analyze.title': 'Analyse',
   'docs.section.conversations.title': 'Conversations',
   'docs.section.conversations.intro':
-    "Conversations persistantes : envoyez des messages (texte, fichier ou URL) et recevez des cartes d'analyse ou des réponses streamées token par token (SSE).",
+    "Conversations persistantes : envoyez des messages (texte, fichier ou URL). Les analyses sont traitées en TÂCHE DE FOND (statut « queued » → « pending » → « ready »/« error », suivi par sondage, annulables) ; les questions de suivi sont streamées token par token (SSE).",
   'docs.section.history.title': 'Historique',
   'docs.section.media.title': 'Médias',
   'docs.section.media.intro':
@@ -424,7 +427,7 @@ const fr: Dict = {
   'docs.ep.login.desc': 'Authentifie un utilisateur et ouvre une session.',
   'docs.ep.logout.desc': 'Ferme la session (efface le cookie).',
   'docs.ep.analyzeFile.desc':
-    'Analyse un fichier image ou vidéo (≤ 5 min). Les tailles maximales dépendent du forfait (image 10–20 Mo, vidéo 30–100 Mo). Les vidéos sont échantillonnées à ~1 image/s (60 max) sur toute leur durée.',
+    "Analyse un fichier image ou vidéo (≤ 5 min). Les tailles maximales dépendent du forfait (image 10–20 Mo, vidéo 30–100 Mo). Les vidéos sont échantillonnées sur toute leur durée puis suivies image par image (objets localisés et identifiés dans le temps).",
   'docs.ep.analyzeUrl.desc':
     'Analyse une URL publique : image, vidéo YouTube ou clip Twitch (téléchargement contrôlé, vidéos ≤ 5 min).',
   'docs.ep.analyzePrompt.desc': 'Analyse un prompt texte seul (sans média).',
@@ -437,11 +440,12 @@ const fr: Dict = {
   'docs.ep.deleteConversation.desc':
     'Supprime une conversation et ses messages (les analyses restent dans l’historique).',
   'docs.ep.postMessage.desc':
-    "Envoie un message. Avec un fichier ou une URL : analyse → carte. Texte seul : analyse de prompt s'il n'y a pas encore d'analyse, sinon question de suivi (réponse non-streamée).",
+    "Envoie un message. Une ANALYSE (fichier, URL, ou texte seul sans analyse antérieure) répond immédiatement (201) avec une carte assistant en statut « queued » : le traitement tourne en tâche de fond — sondez GET /conversations/:id jusqu'au statut « ready » (ou « error »), et annulez via /:id/cancel. Un texte de suivi (analyse déjà présente) renvoie une réponse de chat non-streamée.",
   'docs.ep.streamMessage.desc':
     'Pose une question de suivi sur la dernière analyse de la conversation. La réponse arrive en Server-Sent Events : frames « data: {"delta": …} » puis « event: done ».',
   'docs.ep.listAnalyses.desc': "Historique paginé des analyses de l'utilisateur.",
   'docs.ep.getAnalysis.desc': "Détail d'une analyse par son identifiant.",
+  'docs.ep.deleteAnalysis.desc': "Supprime une analyse, ses échanges de chat liés et ses médias.",
   'docs.ep.getChatHistory.desc': "Échanges de chat liés à une analyse (par request_id).",
   'docs.ep.getMedia.desc':
     "Miniature JPEG d'une analyse. Authentification par cookie uniquement (utilisable en <img src>).",
@@ -480,6 +484,36 @@ const fr: Dict = {
   'docs.p.sortOrder': 'Ordre de tri.',
   'docs.p.appearance': 'Préférences d’apparence (theme, density).',
   'docs.p.analysis': "Préférences d'analyse (defaultLang, defaultType).",
+  'docs.p.avatarUrl': "URL de l'avatar.",
+  'docs.p.bio': 'Courte biographie.',
+  'docs.p.currentPassword': 'Mot de passe actuel.',
+  'docs.p.newPassword': 'Nouveau mot de passe (≥ 8 caractères).',
+  'docs.p.keyName': 'Nom de la clé (pour la repérer ; défaut « Clé API »).',
+  'docs.p.apiPlan': 'Forfait API : « free », « starter », « business » ou « unlimited ».',
+  'docs.p.tokenPack':
+    'Pack de tokens : « small » (1 000), « medium » (10 000) ou « large » (50 000).',
+  'docs.auth.apiKeyBadge': 'clé API',
+  'docs.section.apikeys.title': 'Clés API & quotas',
+  'docs.section.apikeys.intro':
+    "L'API publique s'utilise par programmation avec une clé : créez-la ici, puis envoyez-la dans le header « Authorization: Bearer dyk_live_… » (ni X-App-Key ni cookie). Les routes d'analyse et d'historique l'acceptent. L'abonnement API et ses quotas sont DISTINCTS du forfait du site, et la gestion des clés se fait depuis le compte web.",
+  'docs.ep.cancelMessage.desc':
+    "Annule l'analyse en cours de la conversation (équivaut au bouton Stop) : le traitement est interrompu côté serveur et l'échange (question + carte) est retiré.",
+  'docs.ep.updateProfile.desc': "Met à jour le profil (nom affiché, avatar, bio).",
+  'docs.ep.changePassword.desc': 'Change le mot de passe (mot de passe actuel requis).',
+  'docs.ep.getSessions.desc': 'Liste les sessions actives du compte.',
+  'docs.ep.revokeSessions.desc':
+    'Déconnecte toutes les AUTRES sessions (la session courante reste active).',
+  'docs.ep.listApiKeys.desc': 'Liste les clés API actives (jamais les secrets).',
+  'docs.ep.createApiKey.desc':
+    "Crée une clé API. Le secret complet (« dyk_live_… ») n'est renvoyé QU'À LA CRÉATION — conservez-le, il ne sera plus jamais affiché.",
+  'docs.ep.revokeApiKey.desc': 'Révoque une clé API (effet immédiat).',
+  'docs.ep.getApiPlan.desc': "Forfait de l'API publique et ses quotas (distinct du forfait du site).",
+  'docs.ep.getApiUsage.desc':
+    'Consommation API mensuelle, solde de tokens et date de réinitialisation des quotas.',
+  'docs.ep.apiCheckout.desc':
+    'Souscrit un forfait API (paiement factice, sans facturation réelle) et retourne un reçu fictif.',
+  'docs.ep.buyApiTokens.desc':
+    'Achète un pack de tokens (crédits de dépassement utilisés au-delà du quota mensuel ; paiement factice).',
 
   // Forfaits (vitrine marketing, abonnement factice)
   'pricing.title': 'Des forfaits pour chaque ambition',
@@ -880,6 +914,7 @@ const en: Dict = {
   'notify.analysisReady': 'Your Dyper analysis is ready',
   'notify.answerReady': 'Dyper replied',
   'notify.body': 'Click to open the conversation.',
+  'notify.open': 'Open',
   'loading.tagline': 'Setting up your workspace…',
   'notFound.title': 'Page not found',
   'notFound.desc':
@@ -934,6 +969,8 @@ const en: Dict = {
   'analyzing.stop': 'Stop analysis',
   'analyzing.queueBusy':
     'Service under heavy load — your analysis will start as soon as a compute slot frees up.',
+  'analyzing.queued': 'Queued…',
+  'analyzing.queueWait': 'High demand — your analysis should start in ~{time}.',
   'analyzing.notice.scan': 'Every detail of the media is inspected — thanks for your patience.',
   'analyzing.notice.busy': 'If the service is busy, processing may slow down — sorry for the wait.',
   'analyzing.notice.quality': 'We favor a reliable result over a rushed answer.',
@@ -1014,7 +1051,7 @@ const en: Dict = {
   'docs.section.analyze.title': 'Analysis',
   'docs.section.conversations.title': 'Conversations',
   'docs.section.conversations.intro':
-    'Persistent conversations: send messages (text, file or URL) and receive analysis cards or token-streamed answers (SSE).',
+    'Persistent conversations: send messages (text, file or URL). Analyses are processed in the BACKGROUND (status “queued” → “pending” → “ready”/“error”, tracked by polling, cancellable); follow-up questions are token-streamed (SSE).',
   'docs.section.history.title': 'History',
   'docs.section.media.title': 'Media',
   'docs.section.media.intro':
@@ -1030,7 +1067,7 @@ const en: Dict = {
   'docs.ep.login.desc': 'Authenticates a user and opens a session.',
   'docs.ep.logout.desc': 'Closes the session (clears the cookie).',
   'docs.ep.analyzeFile.desc':
-    'Analyzes an image or video file (≤ 5 min). Maximum sizes depend on the plan (image 10–20 MB, video 30–100 MB). Videos are sampled at ~1 frame/s (max 60) across their full duration.',
+    'Analyzes an image or video file (≤ 5 min). Maximum sizes depend on the plan (image 10–20 MB, video 30–100 MB). Videos are sampled across their full duration then tracked frame by frame (objects located and identified over time).',
   'docs.ep.analyzeUrl.desc':
     'Analyzes a public URL: image, YouTube video or Twitch clip (controlled download, videos ≤ 5 min).',
   'docs.ep.analyzePrompt.desc': 'Analyzes a text-only prompt (no media).',
@@ -1043,11 +1080,12 @@ const en: Dict = {
   'docs.ep.deleteConversation.desc':
     'Deletes a conversation and its messages (analyses remain in the history).',
   'docs.ep.postMessage.desc':
-    'Sends a message. With a file or URL: analysis → card. Text only: prompt analysis when no analysis exists yet, otherwise a follow-up question (non-streamed answer).',
+    'Sends a message. An ANALYSIS (file, URL, or text-only with no prior analysis) responds immediately (201) with an assistant card in status “queued”: processing runs in the background — poll GET /conversations/:id until status “ready” (or “error”), and cancel via /:id/cancel. A follow-up text (analysis already present) returns a non-streamed chat answer.',
   'docs.ep.streamMessage.desc':
     'Asks a follow-up question about the latest analysis in the conversation. The answer arrives as Server-Sent Events: "data: {"delta": …}" frames then "event: done".',
   'docs.ep.listAnalyses.desc': "Paginated history of the user's analyses.",
   'docs.ep.getAnalysis.desc': 'Detail of an analysis by its identifier.',
+  'docs.ep.deleteAnalysis.desc': 'Deletes an analysis, its linked chat exchanges and its media.',
   'docs.ep.getChatHistory.desc': 'Chat exchanges linked to an analysis (by request_id).',
   'docs.ep.getMedia.desc':
     'JPEG thumbnail of an analysis. Cookie-only authentication (usable in <img src>).',
@@ -1085,6 +1123,35 @@ const en: Dict = {
   'docs.p.sortOrder': 'Sort order.',
   'docs.p.appearance': 'Appearance preferences (theme, density).',
   'docs.p.analysis': 'Analysis preferences (defaultLang, defaultType).',
+  'docs.p.avatarUrl': 'Avatar URL.',
+  'docs.p.bio': 'Short bio.',
+  'docs.p.currentPassword': 'Current password.',
+  'docs.p.newPassword': 'New password (≥ 8 characters).',
+  'docs.p.keyName': 'Key name (to recognize it; defaults to “API key”).',
+  'docs.p.apiPlan': 'API plan: “free”, “starter”, “business” or “unlimited”.',
+  'docs.p.tokenPack': 'Token pack: “small” (1,000), “medium” (10,000) or “large” (50,000).',
+  'docs.auth.apiKeyBadge': 'API key',
+  'docs.section.apikeys.title': 'API keys & quotas',
+  'docs.section.apikeys.intro':
+    'The public API is used programmatically with a key: create it here, then send it in the “Authorization: Bearer dyk_live_…” header (no X-App-Key, no cookie). The analysis and history routes accept it. The API subscription and its quotas are SEPARATE from the website plan, and keys are managed from the web account.',
+  'docs.ep.cancelMessage.desc':
+    "Cancels the conversation's running analysis (equivalent to the Stop button): processing is interrupted server-side and the exchange (question + card) is removed.",
+  'docs.ep.updateProfile.desc': 'Updates the profile (display name, avatar, bio).',
+  'docs.ep.changePassword.desc': 'Changes the password (current password required).',
+  'docs.ep.getSessions.desc': 'Lists the active sessions of the account.',
+  'docs.ep.revokeSessions.desc':
+    'Signs out all OTHER sessions (the current session stays active).',
+  'docs.ep.listApiKeys.desc': 'Lists active API keys (never the secrets).',
+  'docs.ep.createApiKey.desc':
+    'Creates an API key. The full secret (“dyk_live_…”) is returned ONLY AT CREATION — store it, it will never be shown again.',
+  'docs.ep.revokeApiKey.desc': 'Revokes an API key (immediate effect).',
+  'docs.ep.getApiPlan.desc': 'Public API plan and its quotas (separate from the website plan).',
+  'docs.ep.getApiUsage.desc':
+    'Monthly API usage, token balance and the quota reset date.',
+  'docs.ep.apiCheckout.desc':
+    'Subscribes to an API plan (mock payment, no real billing) and returns a fake receipt.',
+  'docs.ep.buyApiTokens.desc':
+    'Buys a token pack (overflow credits used beyond the monthly quota; mock payment).',
   // Plans (marketing showcase, mock subscription)
   'pricing.title': 'Plans for every ambition',
   'pricing.subtitle':

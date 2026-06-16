@@ -53,11 +53,18 @@ class Settings(BaseSettings):
     # Au-delà, le suivi est réinitialisé (pas de persistance entre clips). 0 = désactivé ;
     # baisser = plus sensible aux coupures, monter = moins.
     SCENE_CUT_THRESHOLD: float = 0.20
-    # Nombre minimal de frames sur lesquelles une piste doit apparaître pour être affichée (vidéo).
-    # En deçà, la piste est jugée fugace — hallucination du vocabulaire ouvert ou label parasite
-    # d'une seule frame qui n'a pas tenu dans le temps — et ses détections sont écartées des boîtes
-    # par frame ET de l'agrégat. 1 = filtre désactivé (toute piste, même d'une frame, est gardée).
-    VIDEO_MIN_TRACK_FRAMES: int = 3
+    # Durée CUMULÉE de détection (secondes) qu'une piste doit atteindre pour être affichée et comptée
+    # (vidéo). On compte le nombre TOTAL de frames où la piste apparaît (sans exiger qu'elles soient
+    # consécutives), converti en secondes via la cadence réelle d'échantillonnage. Un critère de
+    # présence CONTINUE éliminait à tort les objets du vocabulaire ouvert (mug, cup, glasses, suit…),
+    # détectés par intermittence mais bien présents ; le cumul préserve cette richesse. En deçà du
+    # seuil, la piste est jugée fugace (hallucination ou label parasite d'une/deux frames isolées) et
+    # ses détections sont écartées des boîtes par frame ET de l'agrégat. Une piste présente sur TOUTE
+    # la séquence (clip très court) n'est jamais filtrée. Plancher absolu de 2 frames (un flicker d'une
+    # seule frame est toujours écarté). 0 = filtre désactivé. Baisser (ex. 0,3) pour encore plus de
+    # richesse, monter pour être plus strict. Repère : 0,3 s ≈ 3 frames à 10 img/s (parité avec
+    # l'ancien filtre) ; 0,5 s ≈ 5 frames ; 0,7 s ≈ 7 frames (plus strict, écarte plus de détections brèves).
+    VIDEO_MIN_TRACK_SECONDS: float = 0.5
 
     # --- Compréhension multimodale (Groq, optionnelle) ---
     # Clé API Groq : active la compréhension globale (vision LLM) et la transcription audio.
@@ -119,13 +126,18 @@ class Settings(BaseSettings):
     # Plafond du vocabulaire ouvert transmis à YOLO-World (éléments vision + base LVIS éventuelle).
     OPEN_VOCAB_MAX: int = 1500
     # Inclure la base LVIS (~1200 classes) dans le vocabulaire ouvert des VIDÉOS. Vrai par défaut :
-    # en vidéo, le suivi écarte les détections fugaces (cf. VIDEO_MIN_TRACK_FRAMES), donc la large
+    # en vidéo, le suivi écarte les détections fugaces (cf. VIDEO_MIN_TRACK_SECONDS), donc la large
     # couverture LVIS retrouve les objets que la vision n'a pas listés SANS laisser passer les
     # hallucinations brèves de classes obscures (un mur vu comme « birdbath », un cou comme
-    # « necklace »…). Les IMAGES restent toujours ancrées sur les éléments décrits par la vision
-    # (pas de filtre temporel possible pour départager une hallucination) : ce réglage ne les
-    # concerne pas. Mettre à Faux pour limiter aussi les vidéos aux seuls éléments décrits.
+    # « necklace »…). Mettre à Faux pour limiter les vidéos aux seuls éléments décrits.
     OPEN_VOCAB_INCLUDE_BASE: bool = True
+    # IDEM pour les IMAGES (réglage SÉPARÉ — n'affecte que la branche image). Vrai = World cherche
+    # aussi la base LVIS, pas seulement les éléments décrits par la vision → couverture bien plus
+    # large (objets que la vision n'a pas nommés). Contrepartie : pas de filtre temporel en image
+    # pour départager une hallucination — une classe obscure très confiante (≥ DISPLAY_MIN_CONFIDENCE)
+    # peut apparaître cochée ; sous le seuil, elle reste affichée mais décochée par défaut. Mettre à
+    # Faux pour revenir au comportement « ancré sur la vision uniquement ».
+    IMAGE_OPEN_VOCAB_INCLUDE_BASE: bool = True
     # Marge de bordure (fraction de la dimension) : en vidéo, les détections dont la boîte touche
     # le bord du cadre (objet tronqué, à moitié hors champ → label ambigu, ex. un camion entrant
     # vu comme une voiture) sont écartées avant le suivi. 0 = désactivé ; régler selon le cadrage.
@@ -137,6 +149,16 @@ class Settings(BaseSettings):
     TRACK_W_MOTION: float = 1.0
     TRACK_W_IOU: float = 0.5
     TRACK_W_APPEARANCE: float = 0.4
+    # Pondération de l'écart de TAILLE (échelle de la boîte) entre la détection et la piste. Empêche
+    # qu'un objet grossissant brutalement (zoom, objet surgissant au premier plan) « vole » la piste
+    # d'une cible plus petite avec laquelle il se recouvre : leurs dimensions diffèrent trop. Un vrai
+    # changement d'échelle est progressif (faible écart par frame) et reste donc apparié ; seul un
+    # saut d'échelle brutal est pénalisé. Mis volontairement assez ferme pour être discriminant.
+    TRACK_W_SIZE: float = 0.6
+    # Bande de tolérance du coût de taille : ratio de dimension (petite/grande) au-DESSUS duquel
+    # l'écart est jugé normal (aucune pénalité). 0,5 = on tolère jusqu'à un facteur 2 entre deux frames
+    # (jitter des petites boîtes, ex. lunettes) ; en deçà, la pénalité monte pour les sauts brutaux.
+    TRACK_SIZE_TOLERANCE: float = 0.5
     # Pénalité ajoutée au coût quand les classes diffèrent (souple : n'interdit pas, décourage).
     TRACK_LABEL_PENALTY: float = 0.3
     # Coût maximal pour associer une détection à une piste ; au-delà, une nouvelle piste est créée.

@@ -116,8 +116,9 @@ server { listen 80; server_name dyper.app; return 301 https://$host$request_uri;
 
 Dyper est conçu pour tourner sur **une seule instance** de chaque service. Ce choix est assumé :
 
-- **`dyper-ai`** s'appuie sur **un GPU local** et les **poids du modèle** chargés en mémoire.
-  Multiplier les instances multiplierait le coût GPU sans bénéfice pour une démo.
+- **`dyper-ai`** s'appuie sur **un GPU** (serveur distant : cloud ou dédié — le modèle n'est pas
+  prévu pour tourner en local) et les **poids du modèle** chargés en mémoire. Multiplier les
+  instances multiplierait le coût GPU sans bénéfice à ce stade.
 - **`dyper-api`** persiste dans **SQLite** (fichier local) et stocke les **médias sur disque**.
   La **file d'attente** et le **sémaphore de capacité** (cf. `capacity.service.ts`) sont **en
   mémoire** : ils ne sont valables que dans un processus unique.
@@ -133,10 +134,10 @@ même sous forte charge :
 
 **Dimensionnement indicatif** (analyse vidéo, modèle `yolo26l` + vision + audio) :
 
-| GPU                     | `MAX_CONCURRENT_ANALYSES` | Remarque                              |
+| GPU (serveur distant)   | `MAX_CONCURRENT_ANALYSES` | Remarque                              |
 |-------------------------|---------------------------|---------------------------------------|
-| RTX 3050 (8 Go) — démo  | 1                         | Vidéos courtes ; ajuster les knobs ci-dessous |
-| RTX 5070 Ti (16 Go)     | 2                         | Confort dev/prod légère               |
+| 8–12 Go (entrée de gamme) | 1                       | Vidéos courtes ; ajuster les knobs ci-dessous |
+| RTX 5070 Ti (16 Go)     | 2                         | Poste de développement                |
 | L4 / A10 (24 Go)        | 3–4                       | Production                            |
 
 > **Mise à l'échelle.** Pour aller au-delà d'un nœud, la voie est la **mise à l'échelle verticale**

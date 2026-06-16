@@ -333,8 +333,11 @@ export interface ConversationMessage {
   kind: MessageKind
   content: string
   attachmentName: string | null
-  /** Statut serveur d'une carte d'analyse : « pending » (tâche de fond) → « ready » / « error ». */
-  analysisStatus: 'pending' | 'ready' | 'error'
+  /**
+   * Statut serveur d'une carte d'analyse : « queued » (en file de calcul) → « pending » (traitement
+   * en cours) → « ready » / « error ».
+   */
+  analysisStatus: 'queued' | 'pending' | 'ready' | 'error'
   seq: number
   createdAt: string
   analysis: InlineAnalysis | null

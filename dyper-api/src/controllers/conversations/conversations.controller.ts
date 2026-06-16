@@ -2,6 +2,7 @@
 import type { FastifyReply, FastifyRequest } from 'fastify';
 import { Op } from 'sequelize';
 import { Analysis, ChatExchange, Conversation, Message } from '../../models';
+import { cancelConversationAnalysis } from '../../services/conversations/analysis-job.service';
 import {
   buildMessageViews,
   findOwnedConversation,
@@ -84,6 +85,11 @@ export async function deleteConversation(
 ): Promise<void> {
   const userId = request.authUser?.id as string;
   const conversation = await findOwnedConversation(request.params.id, userId);
+
+  // Interrompt une éventuelle analyse en tâche de fond AVANT toute suppression : libère le moteur IA
+  // (la requête /process est annulée → dyper-ai s'arrête) et évite que le job écrive dans des lignes
+  // en cours de suppression.
+  cancelConversationAnalysis(conversation.id);
 
   // Supprimer une conversation efface aussi ses analyses : lignes d'historique, échanges
   // de chat associés, et fichiers médias (miniatures + vidéos) sur disque.

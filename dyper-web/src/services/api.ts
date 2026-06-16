@@ -342,7 +342,7 @@ export async function createConversation(): Promise<Conversation> {
 // Le serveur expose le statut de la carte sous `status` ; on le mappe en `analysisStatus`
 // (le champ `status` côté client est réservé aux états optimistes d'envoi).
 type WireMessage = Omit<ConversationMessage, 'analysisStatus'> & {
-  status?: 'pending' | 'ready' | 'error'
+  status?: 'queued' | 'pending' | 'ready' | 'error'
 }
 function mapMessage(m: WireMessage): ConversationMessage {
   const { status, ...rest } = m

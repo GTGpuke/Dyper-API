@@ -19,8 +19,8 @@ const TITLE: Bilingual = {
 }
 
 const META: Bilingual = {
-  fr: 'Livre blanc technique · Version 2.1 · Équipe Dyper',
-  en: 'Technical white paper · Version 2.1 · Dyper Team',
+  fr: 'Livre blanc technique · Version 2.2 · Équipe Dyper',
+  en: 'Technical white paper · Version 2.2 · Dyper Team',
 }
 
 const ABSTRACT: Bilingual = {
@@ -63,12 +63,12 @@ const SECTIONS: Section[] = [
     paragraphs: {
       fr: [
         "Le cœur visuel fusionne deux détecteurs complémentaires : un détecteur sur classes fermées, précis sur son périmètre, et un détecteur à vocabulaire ouvert dérivé d'une grande nomenclature, qui assure la couverture. La fusion est spatiale — une boîte par objet, le détecteur le plus fiable l'emportant — afin d'éviter les doublons tout en maximisant le rappel.",
-        "En vidéo, chaque image échantillonnée est détectée puis fusionnée, et les identités sont stabilisées dans le temps par un suivi multi-objets s'appuyant sur le mouvement, la position, l'apparence et le label. Une détection de coupures de plan réinitialise le suivi aux changements de scène, évitant de relier des objets de clips distincts.",
+        "En vidéo, chaque image échantillonnée est détectée puis fusionnée, et les identités sont stabilisées dans le temps par un suivi multi-objets s'appuyant sur le mouvement, la position, la taille, l'apparence et le label. Une détection de coupures de plan réinitialise le suivi aux changements de scène, évitant de relier des objets de clips distincts. Un filtre de persistance écarte enfin les pistes trop brèves, jugées fugaces.",
         "La scène et la palette de couleurs sont inférées à partir des détections ; un seuil d'affichage sépare les détections prioritaires des détections incertaines, ces dernières restant disponibles mais non comptabilisées dans le compte rendu.",
       ],
       en: [
         'The visual core fuses two complementary detectors: a closed-set detector, precise within its scope, and an open-vocabulary detector derived from a large nomenclature, which provides coverage. Fusion is spatial — one box per object, the more reliable detector winning — to avoid duplicates while maximizing recall.',
-        'For video, each sampled frame is detected then fused, and identities are stabilized over time by a multi-object tracker leveraging motion, position, appearance and label. Scene-cut detection resets the tracker at scene changes, avoiding linking objects across distinct clips.',
+        'For video, each sampled frame is detected then fused, and identities are stabilized over time by a multi-object tracker leveraging motion, position, size, appearance and label. Scene-cut detection resets the tracker at scene changes, avoiding linking objects across distinct clips. A persistence filter finally drops tracks that are too brief to be real.',
         'Scene and color palette are inferred from detections; a display threshold separates priority detections from uncertain ones, the latter remaining available but excluded from the report.',
       ],
     },
@@ -105,12 +105,12 @@ const SECTIONS: Section[] = [
     paragraphs: {
       fr: [
         "Un backend unique impose une discipline de débit. La passerelle borne le nombre d'analyses simultanées par un sémaphore ; au-delà, les requêtes patientent dans une file d'attente prioritaire. La priorité dépend du forfait, jamais la qualité : toutes les offres partagent exactement la même puissance d'analyse. Seuls diffèrent les volumes mensuels, les tailles de fichier et l'ordre de passage.",
-        "L'annulation est coopérative de bout en bout : si le client interrompt une requête, la passerelle ferme la connexion vers le moteur, qui vérifie périodiquement la déconnexion et abandonne le travail en cours — aucun calcul n'est gaspillé.",
+        "Les analyses sont traitées en TÂCHE DE FOND, découplées de la requête HTTP : le client reçoit aussitôt une carte « en attente » et suit l'avancement par sondage, de sorte qu'un rechargement de page ne perd jamais une analyse en cours. L'annulation est explicite et coopérative de bout en bout : déclenchée par l'utilisateur, la passerelle ferme la connexion vers le moteur, qui vérifie périodiquement la déconnexion et abandonne le travail en cours — aucun calcul n'est gaspillé.",
         "Les quotas mensuels (analyses, minutes vidéo) sont appliqués par la passerelle et réinitialisés par période. Ce découpage maintient un service réactif sous charge sans dégrader la qualité d'aucun traitement.",
       ],
       en: [
         'A single backend demands throughput discipline. The gateway bounds concurrent analyses with a semaphore; beyond that, requests wait in a priority queue. Priority depends on the plan, never on quality: every tier shares the exact same analysis power. Only monthly volumes, file sizes and ordering differ.',
-        'Cancellation is cooperative end-to-end: if the client aborts a request, the gateway closes the connection to the engine, which periodically checks for disconnection and abandons in-flight work — no compute is wasted.',
+        'Analyses run in the BACKGROUND, decoupled from the HTTP request: the client immediately receives a “pending” card and tracks progress by polling, so a page reload never loses an in-flight analysis. Cancellation is explicit and cooperative end-to-end: triggered by the user, the gateway closes the connection to the engine, which periodically checks for disconnection and abandons in-flight work — no compute is wasted.',
         'Monthly quotas (analyses, video minutes) are enforced by the gateway and reset per period. This split keeps the service responsive under load without degrading the quality of any single job.',
       ],
     },
