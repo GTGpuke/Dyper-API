@@ -5,7 +5,7 @@ import type { ReactNode } from 'react'
 export function PageContainer({ children }: { children: ReactNode }) {
   return (
     <div className="h-full overflow-y-auto">
-      <div className="mx-auto w-full max-w-6xl px-6 py-8 lg:px-10">{children}</div>
+      <div className="mx-auto w-full max-w-6xl px-4 py-6 sm:px-6 sm:py-8 lg:px-10">{children}</div>
     </div>
   )
 }

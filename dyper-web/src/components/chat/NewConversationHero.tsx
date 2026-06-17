@@ -248,7 +248,7 @@ export function NewConversationHero({
                 onDragOver={(e) => e.preventDefault()}
                 onDrop={handleDrop}
                 className={cn(
-                  'relative block w-full overflow-hidden rounded-3xl border-2 border-dashed px-8 py-16 text-center transition-all duration-200',
+                  'relative block w-full overflow-hidden rounded-3xl border-2 border-dashed px-4 py-10 text-center transition-all duration-200 sm:px-8 sm:py-16',
                   dragging
                     ? 'scale-[1.01] border-brand-500 bg-brand-50 shadow-card-hover dark:bg-brand-600/10'
                     : 'border-ink-300 bg-gradient-to-b from-ink-50 to-white hover:border-brand-400 hover:from-brand-50/50 dark:border-ink-700 dark:from-ink-800/40 dark:to-ink-900 dark:hover:border-brand-500'

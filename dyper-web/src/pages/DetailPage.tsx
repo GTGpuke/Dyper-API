@@ -93,7 +93,7 @@ export function DetailPage() {
           <div className="grid gap-6 lg:grid-cols-3">
             {/* Colonne principale. */}
             <div className="flex flex-col gap-6 lg:col-span-2">
-              <div className="surface flex flex-col gap-6 p-6">
+              <div className="surface flex flex-col gap-6 p-4 sm:p-6">
                 {/* Média : lecteur vidéo annoté si la vidéo est conservée, sinon miniature. */}
                 {hasPlayer ? (
                   <VideoPlayer
@@ -179,7 +179,7 @@ export function DetailPage() {
               </div>
 
               {/* Historique de chat persisté (table chat_exchange). */}
-              <div className="surface flex flex-col gap-4 p-6">
+              <div className="surface flex flex-col gap-4 p-4 sm:p-6">
                 <h3 className="eyebrow">{t('detail.chat', { n: chat.length })}</h3>
                 {chat.length === 0 ? (
                   <p className="text-sm text-ink-400 dark:text-ink-500">{t('detail.chatEmpty')}</p>
@@ -188,12 +188,12 @@ export function DetailPage() {
                     {chat.map((ex) => (
                       <div key={ex.id} className="flex flex-col gap-2">
                         <div className="flex justify-end">
-                          <div className="max-w-[85%] rounded-2xl bg-brand-600 px-3.5 py-2 text-sm text-white">
+                          <div className="max-w-[85%] break-words rounded-2xl bg-brand-600 px-3.5 py-2 text-sm text-white">
                             {ex.question}
                           </div>
                         </div>
                         <div className="flex justify-start">
-                          <div className="max-w-[85%] rounded-2xl bg-ink-100 px-3.5 py-2 text-sm leading-relaxed text-ink-700 dark:bg-ink-700 dark:text-ink-100">
+                          <div className="max-w-[85%] break-words rounded-2xl bg-ink-100 px-3.5 py-2 text-sm leading-relaxed text-ink-700 dark:bg-ink-700 dark:text-ink-100">
                             {ex.answer}
                           </div>
                         </div>
