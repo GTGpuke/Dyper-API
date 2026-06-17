@@ -102,6 +102,28 @@ async function waitForAnalysis(id: string, timeoutMs = 5000): Promise<MessageVie
   throw new Error('Analyse non terminée dans le délai imparti.');
 }
 
+// Sonde jusqu'à ce que `count` cartes d'analyse soient à l'état « ready » (cas multi-analyses :
+// `waitForAnalysis` s'arrête à la 1re carte prête et laisserait les suivantes tourner en fond).
+async function waitForReadyAnalyses(
+  id: string,
+  count: number,
+  timeoutMs = 5000
+): Promise<MessageView[]> {
+  const start = Date.now();
+  while (Date.now() - start < timeoutMs) {
+    const res = await app.inject({
+      method: 'GET',
+      url: `/api/conversations/${id}`,
+      headers: auth.headers,
+    });
+    const messages = res.json().messages as MessageView[];
+    const ready = messages.filter((m) => m.kind === 'analysis' && m.status === 'ready');
+    if (ready.length >= count) return messages;
+    await new Promise((r) => setTimeout(r, 25));
+  }
+  throw new Error(`Les ${count} analyses ne sont pas terminées dans le délai imparti.`);
+}
+
 describe('Envoi de messages (/api/conversations/:id/messages)', () => {
   it('fichier joint → 2 messages, carte inlinée, miniature écrite sur disque', async () => {
     const id = await newConversation();
@@ -212,10 +234,51 @@ describe('Envoi de messages (/api/conversations/:id/messages)', () => {
     // Le contexte transmis à Groq provient de la ligne persistée (objets complets, timeline,
     // transcription), et la miniature est jointe : le modèle répond en voyant l'image.
     const params = chatSpy.mock.calls[0][0];
-    expect(params.context.visualization.objects).toHaveLength(2);
-    expect(params.context.timeline).toHaveLength(2);
-    expect(params.context.audioTranscript).toBe('Bonjour à tous.');
+    // Mono-analyse : forme historique `context` + `imageBase64` (inchangée).
+    expect(params.context).toBeDefined();
+    const ctx = params.context as NonNullable<typeof params.context>;
+    expect(ctx.visualization.objects).toHaveLength(2);
+    expect(ctx.timeline).toHaveLength(2);
+    expect(ctx.audioTranscript).toBe('Bonjour à tous.');
     expect(params.imageBase64).toBe(TINY_JPEG_B64);
+  });
+
+  it('deux analyses dans le fil → la question de suivi reçoit TOUS les médias (comparaison)', async () => {
+    const id = await newConversation();
+    // 1) Deux analyses successives dans la même conversation.
+    await app.inject({
+      method: 'POST',
+      url: `/api/conversations/${id}/messages`,
+      headers: auth.headers,
+      payload: { url: 'https://example.com/a.jpg' },
+    });
+    await app.inject({
+      method: 'POST',
+      url: `/api/conversations/${id}/messages`,
+      headers: auth.headers,
+      payload: { url: 'https://example.com/b.jpg' },
+    });
+    // Les DEUX analyses doivent être terminées avant la question (sinon contexte incomplet).
+    await waitForReadyAnalyses(id, 2);
+
+    // 2) Question de comparaison : le contexte couvre les DEUX médias (et leurs deux images).
+    const chatSpy = jest.spyOn(groqService, 'chatWithResult').mockResolvedValue({
+      answer: 'Les deux scènes diffèrent.',
+      model: 'llama-3.1-8b-instant',
+    });
+    const res = await app.inject({
+      method: 'POST',
+      url: `/api/conversations/${id}/messages`,
+      headers: auth.headers,
+      payload: { text: 'Compare les deux médias.' },
+    });
+    expect(res.statusCode).toBe(201);
+
+    const params = chatSpy.mock.calls[0][0];
+    // Forme multi-médias : `contexts`/`images` (et non plus `context`/`imageBase64`).
+    expect(params.contexts).toHaveLength(2);
+    expect(params.images).toHaveLength(2);
+    expect(params.context).toBeUndefined();
   });
 
   it('URL invalide → 400, message vide → 400', async () => {

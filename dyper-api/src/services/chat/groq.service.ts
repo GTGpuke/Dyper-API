@@ -18,12 +18,16 @@ type UserContent =
 // Tour de conversation antérieur (mémoire du fil transmise au modèle).
 export type ChatTurn = { role: 'user' | 'assistant'; content: string };
 
-// Construit le contenu du message utilisateur (multimodal si une miniature est fournie).
-function buildUserContent(question: string, imageBase64?: string | null): UserContent {
-  if (!imageBase64) return question;
+// Construit le contenu du message utilisateur (multimodal si des miniatures sont fournies). En
+// comparaison multi-médias, les images sont jointes dans l'ordre des médias (Média 1, Média 2…).
+function buildUserContent(question: string, images: string[]): UserContent {
+  if (images.length === 0) return question;
   return [
     { type: 'text', text: question },
-    { type: 'image_url', image_url: { url: `data:image/jpeg;base64,${imageBase64}` } },
+    ...images.map((b64) => ({
+      type: 'image_url' as const,
+      image_url: { url: `data:image/jpeg;base64,${b64}` },
+    })),
   ];
 }
 
@@ -179,16 +183,19 @@ class GroqService {
     return this.client;
   }
 
-  // Construit le prompt système : présente la perception du média à Dyper lui-même (à la première
-  // personne), comme une connaissance unifiée — jamais comme les résultats d'un système tiers.
-  private buildSystemPrompt(context: ChatContext, lang: string): string {
+  // Bloc « perception » d'UN média (Aperçu / Scène / Éléments / Couleurs / Mots-clés / propos /
+  // musique), présenté à la première personne. Partagé par le prompt mono-média et le prompt de
+  // comparaison. Renvoie aussi `hasFrames` (vidéo avec détections datées) pour les règles de minutage.
+  private describePerception(
+    context: ChatContext,
+    lang: string
+  ): { block: string; hasFrames: boolean } {
     const { description, visualization, timeline, audioTranscript, music } = context;
     const { frameDetections, transcriptSegments, sourceWidth, sourceHeight } = context;
     const { scene, objects, colors, tags } = visualization;
 
     const indoorLabel =
       scene.indoor === true ? 'intérieur' : scene.indoor === false ? 'extérieur' : 'indéterminé';
-    const responseLang = lang === 'en' ? 'anglais' : 'français';
 
     // Éléments : vidéo → résumé par piste (apparition + position dans le temps) ; image → liste avec
     // position relative ; repli (vidéo sans détections par frame) → périodes d'apparition par label.
@@ -222,6 +229,25 @@ class GroqService {
             .join(' ; ')}`
         : '';
 
+    const block = `**Aperçu :** ${description}
+
+**Scène :** ${scene.label} (${indoorLabel})
+
+${elementsHeader}${elementsText}
+
+**Couleurs dominantes :** ${colors.join(', ') || 'non disponibles'}
+
+**Mots-clés :** ${tags.join(', ') || 'aucun'}${speechText}${musicText}`;
+
+    return { block, hasFrames };
+  }
+
+  // Construit le prompt système : présente la perception du média à Dyper lui-même (à la première
+  // personne), comme une connaissance unifiée — jamais comme les résultats d'un système tiers.
+  private buildSystemPrompt(context: ChatContext, lang: string): string {
+    const responseLang = lang === 'en' ? 'anglais' : 'français';
+    const { block, hasFrames } = this.describePerception(context, lang);
+
     // Règles spécifiques au minutage (vidéos avec apparitions datées) : ancrer les réponses
     // temporelles sur la liste réelle et rester honnête sur l'identité des sujets.
     const temporalRules = hasFrames
@@ -234,15 +260,7 @@ class GroqService {
 
 Ta perception du média :
 
-**Aperçu :** ${description}
-
-**Scène :** ${scene.label} (${indoorLabel})
-
-${elementsHeader}${elementsText}
-
-**Couleurs dominantes :** ${colors.join(', ') || 'non disponibles'}
-
-**Mots-clés :** ${tags.join(', ') || 'aucun'}${speechText}${musicText}
+${block}
 
 Façon de répondre :
 - Tu ES Dyper. Si tu te désignes, parle à la première personne ; ne te présente jamais comme un assistant qui commente une analyse, et ne parle jamais de « Dyper » ou d'un « système » à la troisième personne.
@@ -257,6 +275,46 @@ Façon de répondre :
 - Reste factuel, direct, naturel et concis, en ${responseLang}.`;
   }
 
+  // Prompt système de COMPARAISON : plusieurs médias observés dans la même conversation, présentés
+  // dans l'ordre (Média 1, 2, …) et joints comme images dans le même ordre. Même posture et mêmes
+  // garde-fous que le prompt mono-média, plus des consignes de mise en regard.
+  private buildComparisonSystemPrompt(contexts: ChatContext[], lang: string): string {
+    const responseLang = lang === 'en' ? 'anglais' : 'français';
+    const perceptions = contexts.map((c) => this.describePerception(c, lang));
+    const anyFrames = perceptions.some((p) => p.hasFrames);
+    const blocks = perceptions.map((p, i) => `### Média ${i + 1}\n\n${p.block}`).join('\n\n');
+
+    const temporalRules = anyFrames
+      ? `
+- Pour toute question de minutage (« à quel moment… », « donne les timecodes »), appuie-toi EXCLUSIVEMENT sur les moments d'apparition listés pour le média concerné, et précise toujours DE QUEL média tu parles. N'invente aucun horaire et n'intervertis pas les médias.`
+      : '';
+
+    return `Tu es Dyper, une intelligence d'analyse visuelle. C'est toi qui as observé les ${contexts.length} médias ci-dessous (chacun joint comme image dans l'ordre : « Média 1 » correspond à la première image, « Média 2 » à la deuxième, etc.) : tout ce qui suit est ta propre perception, pas le travail d'un outil tiers. Réponds comme si tu avais les médias sous les yeux.
+
+Ta perception des médias :
+
+${blocks}
+
+Façon de répondre :
+- Tu ES Dyper. Si tu te désignes, parle à la première personne ; ne te présente jamais comme un assistant qui commente une analyse, et ne parle jamais de « Dyper » ou d'un « système » à la troisième personne.
+- Tu es avant tout un interlocuteur : tu CONVERSES, tu ne récites pas. Lis le message de l'utilisateur et la conversation jusqu'ici, puis réponds précisément à CE qui est demandé.
+- Quand on te demande de comparer ou de mettre en relation les médias, traite-les ENSEMBLE : nomme-les « Média 1 », « Média 2 »…, dégage points communs et différences concrètes (sujets, scène, couleurs, ambiance, propos), puis conclus clairement. N'attribue jamais à un média ce qui appartient à un autre.
+- Si la question ne porte que sur un seul média, réponds sur celui-là sans dérouler les autres. Si le message n'est pas une question sur les médias (salutation, « ok », « merci »…), réponds naturellement et brièvement, sans rien décrire.
+- Ne répète pas une information déjà donnée dans la conversation : appuie-toi sur ce qui a déjà été dit et apporte du nouveau. Évite la formule d'ouverture systématique « Je vois… ».
+- Traite ta perception ci-dessus ET ce que tu vois comme UNE SEULE connaissance des médias : ne distingue jamais « ce qui a été détecté » de « ce que tu déduis ».
+- N'évoque jamais tes rouages ni tes sources internes — ni « système », « outil », « analyse », « détection », « données », ni les rubriques ci-dessus, ni pourcentages ou coordonnées. Sers-toi de leur contenu comme d'une chose que tu sais, sans dire d'où il vient. Pas de « d'après l'image » ni « selon l'analyse » : affirme directement.
+- Déduis et complète librement à partir de ce que tu vois. Si une indication interne te paraît fausse au vu d'un média, fie-toi au média et corrige sans le signaler. Si tu n'es pas certain, dis-le simplement (« on dirait… »).${temporalRules}
+- L'utilisateur s'exprime en ${responseLang} : sers-t'en comme indice de sa locale pour les questions qui en dépendent, sans présumer à l'excès ni l'évoquer explicitement.
+- Reste factuel, direct, naturel et concis, en ${responseLang}.`;
+  }
+
+  // Sélectionne le prompt système selon le nombre de médias (comparaison si 2+).
+  private systemPromptFor(contexts: ChatContext[], lang: string): string {
+    return contexts.length > 1
+      ? this.buildComparisonSystemPrompt(contexts, lang)
+      : this.buildSystemPrompt(contexts[0], lang);
+  }
+
   /**
    * Envoie une question à Groq avec le contexte d'analyse en prompt système.
    * @throws {ChatNotConfiguredError} Si GROQ_API_KEY n'est pas configurée.
@@ -264,26 +322,37 @@ Façon de répondre :
    */
   async chatWithResult(params: {
     question: string;
-    context: ChatContext;
+    /** Contexte d'UN média (mono-analyse). Ignoré si `contexts` est fourni. */
+    context?: ChatContext;
+    /** Contextes de PLUSIEURS médias (chat de comparaison) — prioritaire sur `context`. */
+    contexts?: ChatContext[];
     lang?: string;
     /** Miniature de l'analyse (base64 JPEG) : le modèle répond en voyant l'image. */
     imageBase64?: string | null;
+    /** Miniatures des médias à comparer (ordre des médias) — prioritaire sur `imageBase64`. */
+    images?: string[];
     /** Tours antérieurs de la conversation (mémoire du fil) — l'image n'est jointe qu'au dernier. */
     history?: ChatTurn[];
   }): Promise<{ answer: string; model: string }> {
-    const { question, context, lang = 'fr', imageBase64, history = [] } = params;
+    const { question, lang = 'fr', history = [] } = params;
+    const contexts = params.contexts ?? (params.context ? [params.context] : []);
+    const images = params.images ?? (params.imageBase64 ? [params.imageBase64] : []);
     const client = this.getClient();
 
-    logger.info('Appel vers Groq pour le chat.', { lang, vision: Boolean(imageBase64) });
+    logger.info('Appel vers Groq pour le chat.', {
+      lang,
+      media: contexts.length,
+      vision: images.length,
+    });
 
     try {
       const completion = await client.chat.completions.create({
         model: MODEL,
         max_tokens: 1024,
         messages: [
-          { role: 'system' as const, content: this.buildSystemPrompt(context, lang) },
+          { role: 'system' as const, content: this.systemPromptFor(contexts, lang) },
           ...history.map((t) => ({ role: t.role, content: t.content })),
-          { role: 'user' as const, content: buildUserContent(question, imageBase64) },
+          { role: 'user' as const, content: buildUserContent(question, images) },
         ],
       });
       return { answer: completion.choices[0]?.message?.content ?? '', model: MODEL };
@@ -302,17 +371,28 @@ Façon de répondre :
    */
   async streamChatWithResult(params: {
     question: string;
-    context: ChatContext;
+    /** Contexte d'UN média (mono-analyse). Ignoré si `contexts` est fourni. */
+    context?: ChatContext;
+    /** Contextes de PLUSIEURS médias (chat de comparaison) — prioritaire sur `context`. */
+    contexts?: ChatContext[];
     lang?: string;
     /** Miniature de l'analyse (base64 JPEG) : le modèle répond en voyant l'image. */
     imageBase64?: string | null;
+    /** Miniatures des médias à comparer (ordre des médias) — prioritaire sur `imageBase64`. */
+    images?: string[];
     /** Tours antérieurs de la conversation (mémoire du fil) — l'image n'est jointe qu'au dernier. */
     history?: ChatTurn[];
   }): Promise<{ stream: Stream<ChatCompletionChunk>; model: string }> {
-    const { question, context, lang = 'fr', imageBase64, history = [] } = params;
+    const { question, lang = 'fr', history = [] } = params;
+    const contexts = params.contexts ?? (params.context ? [params.context] : []);
+    const images = params.images ?? (params.imageBase64 ? [params.imageBase64] : []);
     const client = this.getClient();
 
-    logger.info('Ouverture du flux de chat Groq.', { lang, vision: Boolean(imageBase64) });
+    logger.info('Ouverture du flux de chat Groq.', {
+      lang,
+      media: contexts.length,
+      vision: images.length,
+    });
 
     try {
       const stream = await client.chat.completions.create({
@@ -320,9 +400,9 @@ Façon de répondre :
         max_tokens: 1024,
         stream: true,
         messages: [
-          { role: 'system' as const, content: this.buildSystemPrompt(context, lang) },
+          { role: 'system' as const, content: this.systemPromptFor(contexts, lang) },
           ...history.map((t) => ({ role: t.role, content: t.content })),
-          { role: 'user' as const, content: buildUserContent(question, imageBase64) },
+          { role: 'user' as const, content: buildUserContent(question, images) },
         ],
       });
       return { stream, model: MODEL };

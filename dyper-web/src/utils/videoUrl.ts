@@ -5,8 +5,8 @@ const PLATFORM_PATTERNS: RegExp[] = [
   /^https?:\/\/(www\.|m\.)?youtube\.com\/(watch\?|shorts\/)/i,
   /^https?:\/\/youtu\.be\/[\w-]+/i,
   /^https?:\/\/clips\.twitch\.tv\/[\w-]+/i,
-  /^https?:\/\/(www\.)?twitch\.tv\/[\w-]+\/clip\/[\w-]+/i,
-  /^https?:\/\/(www\.)?twitch\.tv\/videos\/\d+/i,
+  /^https?:\/\/(www\.|m\.)?twitch\.tv\/(?:[\w-]+\/)?clip\/[\w-]+/i,
+  /^https?:\/\/(www\.|m\.)?twitch\.tv\/videos\/\d+/i,
 ]
 
 /** Indique si l'URL pointe vers une vidéo de plateforme prise en charge. */

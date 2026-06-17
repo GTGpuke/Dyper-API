@@ -5,10 +5,10 @@ const PLATFORM_PATTERNS: RegExp[] = [
   // YouTube : watch, lien court, shorts.
   /^https?:\/\/(www\.|m\.)?youtube\.com\/(watch\?|shorts\/)/i,
   /^https?:\/\/youtu\.be\/[\w-]+/i,
-  // Twitch : clips (deux formes) et VOD.
+  // Twitch : clips (domaine dédié, ou twitch.tv avec/ sans chaîne, y compris mobile m.) et VOD.
   /^https?:\/\/clips\.twitch\.tv\/[\w-]+/i,
-  /^https?:\/\/(www\.)?twitch\.tv\/[\w-]+\/clip\/[\w-]+/i,
-  /^https?:\/\/(www\.)?twitch\.tv\/videos\/\d+/i,
+  /^https?:\/\/(www\.|m\.)?twitch\.tv\/(?:[\w-]+\/)?clip\/[\w-]+/i,
+  /^https?:\/\/(www\.|m\.)?twitch\.tv\/videos\/\d+/i,
 ];
 
 /** Indique si l'URL pointe vers une vidéo de plateforme prise en charge. */

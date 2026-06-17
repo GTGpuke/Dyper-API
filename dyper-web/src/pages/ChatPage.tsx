@@ -240,13 +240,15 @@ export function ChatPage() {
       setAttachment(null)
     } else {
       if (current?.kind === 'url' && isVideoPlatformUrl(current.url)) {
-        // Lien YouTube/Twitch : pas de lecture live, mais une vignette publique (YouTube) si dispo.
+        // Lien YouTube/Twitch : pas de lecture live, mais une vignette publique si dispo. On réutilise
+        // la miniature déjà résolue sur l'attachement (YouTube déduite, Twitch/VOD résolue serveur) —
+        // `youtubeThumbnailUrl` ne sert que de repli (il renvoie null pour Twitch).
         setAnalyzingPreview({
           url: null,
           isVideo: true,
           name: current.url,
           durationS: null,
-          thumbnailUrl: youtubeThumbnailUrl(current.url),
+          thumbnailUrl: current.thumbnailUrl ?? youtubeThumbnailUrl(current.url),
         })
         setPreviewOwner(conversationId)
       }

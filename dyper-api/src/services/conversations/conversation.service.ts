@@ -126,6 +126,38 @@ export async function latestAnalysis(
   });
 }
 
+/**
+ * Toutes les analyses RÉUSSIES de la conversation, dans l'ordre du fil (la plus ancienne d'abord),
+ * pour un chat de COMPARAISON multi-médias. Une carte d'analyse sans ligne persistée (échec) est
+ * ignorée. Plafonné aux `limit` plus récentes afin de borner les tokens et les images envoyés au
+ * modèle. Renvoie un tableau vide si la conversation ne contient aucune analyse exploitable.
+ */
+export async function analysesInConversation(
+  conversationId: string,
+  userId: string,
+  limit = 4
+): Promise<Analysis[]> {
+  const cards = await Message.findAll({
+    where: { conversation_id: conversationId, kind: 'analysis' },
+    order: [['seq', 'ASC']],
+  });
+  const requestIds = cards
+    .map((c) => c.analysis_request_id)
+    .filter((id): id is string => Boolean(id));
+  if (requestIds.length === 0) return [];
+
+  const rows = await Analysis.findAll({
+    where: { request_id: { [Op.in]: requestIds }, user_id: userId },
+  });
+  // `findAll` ne garantit pas l'ordre des request_id : on réordonne selon la séquence du fil, puis on
+  // ne garde que les plus récentes (fin du tableau) si la conversation en compte beaucoup.
+  const byRequestId = new Map(rows.map((r) => [r.request_id, r]));
+  const ordered = requestIds
+    .map((id) => byRequestId.get(id))
+    .filter((a): a is Analysis => Boolean(a));
+  return ordered.slice(-limit);
+}
+
 /** Reconstruit le contexte de chat à partir d'une ligne d'analyse persistée (source serveur). */
 export function buildChatContext(analysis: Analysis): ChatContext {
   return {

@@ -8,7 +8,11 @@ describe('isVideoPlatformUrl', () => {
     'https://youtu.be/dQw4w9WgXcQ',
     'https://clips.twitch.tv/FunnyClipName',
     'https://www.twitch.tv/streamer/clip/FunnyClipName',
+    'https://www.twitch.tv/streamer/clip/Funny-Clip_Name-AbC123?filter=clips&range=7d',
+    'https://m.twitch.tv/streamer/clip/FunnyClipName',
+    'https://m.twitch.tv/clip/FunnyClipName',
     'https://www.twitch.tv/videos/123456789',
+    'https://m.twitch.tv/videos/123456789',
   ])('détecte %s comme plateforme vidéo', (url) => {
     expect(isVideoPlatformUrl(url)).toBe(true);
   });

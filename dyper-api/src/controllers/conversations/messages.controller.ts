@@ -1,6 +1,7 @@
 // Contrôleurs des messages de conversation : envoi (analyse ou chat) et streaming SSE.
 import type { FastifyReply, FastifyRequest } from 'fastify';
 import { v4 as uuidv4 } from 'uuid';
+import type { Analysis } from '../../models';
 import { ChatExchange, Message } from '../../models';
 import type Conversation from '../../models/Conversation';
 import { DEFAULT_CONVERSATION_TITLE } from '../../models/Conversation';
@@ -11,10 +12,10 @@ import {
   runAnalysisJob,
 } from '../../services/conversations/analysis-job.service';
 import {
+  analysesInConversation,
   buildChatContext,
   buildMessageViews,
   findOwnedConversation,
-  latestAnalysis,
   nextSeq,
   recentChatHistory,
   touchConversation,
@@ -26,6 +27,29 @@ import { readThumbnailBase64 } from '../../services/media/media.service';
 import { assertWithinQuota, queuePriority } from '../../services/plan/plan.service';
 import { InvalidFileTypeError, ValidationError } from '../../utils/errors';
 import { isVideoPlatformUrl } from '../../utils/videoUrl';
+
+// Construit les paramètres de contexte/images pour le chat Groq à partir des analyses du fil.
+// Mono-analyse : conserve la forme historique (`context` + `imageBase64`). Multi-analyses (2+) :
+// passe `contexts` + `images` pour un chat de COMPARAISON (le modèle voit tous les médias).
+async function buildChatGroqParams(
+  analyses: Analysis[]
+): Promise<
+  | { context: ReturnType<typeof buildChatContext>; imageBase64: string | null }
+  | { contexts: ReturnType<typeof buildChatContext>[]; images: string[] }
+> {
+  if (analyses.length <= 1) {
+    const a = analyses[0];
+    return {
+      context: buildChatContext(a),
+      imageBase64: await readThumbnailBase64(a.thumbnail_path),
+    };
+  }
+  const contexts = analyses.map((a) => buildChatContext(a));
+  const images = (
+    await Promise.all(analyses.map((a) => readThumbnailBase64(a.thumbnail_path)))
+  ).filter((b): b is string => Boolean(b));
+  return { contexts, images };
+}
 
 // Entrée normalisée d'un envoi de message (multipart ou JSON).
 interface MessageInput {
@@ -198,19 +222,20 @@ export async function postMessage(
     assistant = { kind: 'analysis', content: '', analysisRequestId: requestId };
     initialStatus = 'queued';
   } else {
-    const context = await latestAnalysis(conversation.id, userId);
-    if (context) {
+    const analyses = await analysesInConversation(conversation.id, userId);
+    if (analyses.length > 0) {
       // Branche 3 — question de suivi (chat non-streamé) : SYNCHRONE (réponse courte, non reprise).
+      // Avec 2+ analyses dans le fil, le contexte couvre TOUS les médias (chat de comparaison).
       const { answer, model } = await groqService.chatWithResult({
         question: input.text as string,
-        context: buildChatContext(context),
+        ...(await buildChatGroqParams(analyses)),
         lang: input.lang,
-        imageBase64: await readThumbnailBase64(context.thumbnail_path),
         history: await recentChatHistory(conversation.id),
       });
       try {
         await ChatExchange.create({
-          analysis_request_id: context.request_id,
+          // Échange rattaché à la dernière analyse du fil (ancrage de l'historique de suivi).
+          analysis_request_id: analyses[analyses.length - 1].request_id,
           user_id: userId,
           question: input.text as string,
           answer,
@@ -295,8 +320,8 @@ export async function streamMessage(
   // Phase 1 — toutes les erreurs métier AVANT le moindre octet (réponses JSON normales).
   const conversation = await findOwnedConversation(request.params.id, userId);
   groqService.assertConfigured();
-  const analysisRow = await latestAnalysis(conversation.id, userId);
-  if (!analysisRow) {
+  const analyses = await analysesInConversation(conversation.id, userId);
+  if (analyses.length === 0) {
     throw new ValidationError(
       'Cette conversation ne contient aucune analyse : utilisez le endpoint non-streamé.'
     );
@@ -318,9 +343,8 @@ export async function streamMessage(
   // (hors message courant, déjà persisté à userSeq) donne au modèle la mémoire du fil.
   const { stream, model } = await groqService.streamChatWithResult({
     question: text,
-    context: buildChatContext(analysisRow),
+    ...(await buildChatGroqParams(analyses)),
     lang,
-    imageBase64: await readThumbnailBase64(analysisRow.thumbnail_path),
     history: await recentChatHistory(conversation.id, userSeq),
   });
 
@@ -364,7 +388,8 @@ export async function streamMessage(
     });
     try {
       await ChatExchange.create({
-        analysis_request_id: analysisRow.request_id,
+        // Rattaché à la dernière analyse du fil (ancrage de l'historique de suivi).
+        analysis_request_id: analyses[analyses.length - 1].request_id,
         user_id: userId,
         question: text,
         answer: full,
