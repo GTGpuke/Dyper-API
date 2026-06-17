@@ -34,13 +34,7 @@ services:
       MAX_CONCURRENT_ANALYSES: ${MAX_CONCURRENT_ANALYSES:-2}
 
   # dyper-ai : aucune section `ports` — volontairement non exposé publiquement.
-  # Accès GPU (L40S) pour l'inférence YOLO accélérée (torch CUDA cu128).
+  # Le GPU (L40S) et la wheel Torch CUDA sont fournis par la surcharge docker-compose.gpu.yml,
+  # empilée en production (cf. .github/workflows/ci-deploy.yml). Ici, on ne fixe que le restart.
   dyper-ai:
     restart: unless-stopped
-    deploy:
-      resources:
-        reservations:
-          devices:
-            - driver: nvidia
-              count: all
-              capabilities: [gpu]

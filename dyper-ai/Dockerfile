@@ -14,9 +14,11 @@ ENV PYTHONUNBUFFERED=1 \
 
 WORKDIR /app
 
-# Torch CUDA (cu128) d'abord, pour exploiter le GPU (L40S — driver 580 / CUDA 13). Installer
-# explicitement la wheel CUDA évite qu'ultralytics tire une variante non maîtrisée.
-RUN pip install --no-cache-dir torch torchvision --index-url https://download.pytorch.org/whl/cu128
+# Index des wheels Torch. CPU par défaut (dev local et CI sans GPU) ; on bascule sur un index CUDA
+# (ex. https://download.pytorch.org/whl/cu124 pour une L40S) via --build-arg en déploiement GPU
+# (cf. docker-compose.gpu.yml). Installer Torch d'abord évite qu'ultralytics ne tire des wheels non voulus.
+ARG TORCH_INDEX_URL=https://download.pytorch.org/whl/cpu
+RUN pip install --no-cache-dir torch torchvision --index-url ${TORCH_INDEX_URL}
 
 COPY requirements.txt ./
 RUN pip install --no-cache-dir -r requirements.txt
