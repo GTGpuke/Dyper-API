@@ -90,6 +90,8 @@ jobs:
 
       # Déploiement mono-instance par SSH + docker compose (cf. docs/HOSTING.md).
       # Le serveur reconstruit et redémarre les trois services ; dyper-ai reste interne.
+      # La surcharge GPU (docker-compose.gpu.yml) active Torch CUDA et le passthrough NVIDIA
+      # sur l'instance GPU de production (Scaleway L40S).
       - name: Déploiement via SSH (docker compose)
         if: steps.guard.outputs.ready == 'true'
         uses: appleboy/ssh-action@v1
@@ -103,7 +105,7 @@ jobs:
             git fetch --all
             git checkout main
             git pull origin main
-            docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d --build
+            docker compose -f docker-compose.yml -f docker-compose.prod.yml -f docker-compose.gpu.yml up -d --build
             docker image prune -f
 
       - name: Vérification de santé post-déploiement

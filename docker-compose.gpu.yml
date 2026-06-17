@@ -1,0 +1,27 @@
+# Surcharge GPU : à empiler APRÈS docker-compose.yml (+ docker-compose.prod.yml en prod) pour faire
+# tourner dyper-ai sur GPU NVIDIA (cible : Scaleway L40S, 48 Go VRAM). Cf. docs/HOSTING.md §4bis.
+#
+#   docker compose -f docker-compose.yml -f docker-compose.prod.yml -f docker-compose.gpu.yml up -d --build
+#
+# Prérequis hôte : drivers NVIDIA (préinstallés sur les instances GPU Scaleway) + NVIDIA Container
+# Toolkit. Sans cette surcharge, le stack reste en CPU (aucune dépendance GPU pour le dev local).
+services:
+  dyper-ai:
+    build:
+      # Wheel Torch CUDA 12.4 — compatible Ada Lovelace (L40S, compute capability 8.9).
+      args:
+        TORCH_INDEX_URL: https://download.pytorch.org/whl/cu124
+    # Expose le GPU au conteneur (équivaut à `docker run --gpus`).
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]
+
+  # 48 Go de VRAM autorisent davantage d'analyses simultanées qu'une carte 24 Go (cf. docs/HOSTING.md
+  # §3). Ajustable via la variable d'environnement MAX_CONCURRENT_ANALYSES si besoin.
+  dyper-api:
+    environment:
+      MAX_CONCURRENT_ANALYSES: ${MAX_CONCURRENT_ANALYSES:-6}

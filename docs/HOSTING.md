@@ -180,6 +180,37 @@ docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d --build
 > **Build du front** : passez `VITE_API_URL=""` (origine unique) et `VITE_APP_KEY=$APP_KEY` en
 > arguments de build pour que la SPA appelle `/api/v1` en relatif.
 
+### 4 bis. Déploiement GPU (Scaleway L40S / CUDA)
+
+Par défaut, l'image `dyper-ai` est construite avec **Torch CPU** : le stack démarre partout sans GPU
+(dev local, CI). Pour exploiter un **GPU NVIDIA** en production, on empile une surcharge dédiée,
+[`docker-compose.gpu.yml`](../docker-compose.gpu.yml), qui (a) bascule le build sur le wheel **Torch
+CUDA** via l'argument `TORCH_INDEX_URL` et (b) expose la carte au conteneur (`deploy.resources`).
+Le code d'inférence détecte alors CUDA automatiquement (cf. `world_runner.py`).
+
+**Prérequis hôte** (les drivers NVIDIA sont préinstallés sur les instances GPU Scaleway) :
+
+```bash
+# NVIDIA Container Toolkit : permet à Docker de passer le GPU au conteneur.
+sudo apt-get install -y nvidia-container-toolkit
+sudo nvidia-ctk runtime configure --runtime=docker
+sudo systemctl restart docker
+docker run --rm --gpus all nvidia/cuda:12.4.1-base-ubuntu22.04 nvidia-smi   # vérification
+```
+
+**Lancement** (on empile la surcharge GPU APRÈS la surcharge prod) :
+
+```bash
+docker compose -f docker-compose.yml -f docker-compose.prod.yml -f docker-compose.gpu.yml up -d --build
+```
+
+> **L40S (48 Go VRAM)** : la surcharge porte `MAX_CONCURRENT_ANALYSES` à **6** par défaut (contre 2
+> en prod CPU). Ajustez selon la charge réelle. Le wheel `cu124` cible la génération Ada Lovelace
+> (compute capability 8.9) de la L40S ; adaptez `TORCH_INDEX_URL` pour un autre GPU.
+
+> **CI/CD** : le déploiement de production ([`ci-deploy.yml`](../.github/workflows/ci-deploy.yml))
+> empile automatiquement `docker-compose.gpu.yml`. Le déploiement `dev` reste en CPU.
+
 ---
 
 ## 5. Secrets & variables d'environnement
