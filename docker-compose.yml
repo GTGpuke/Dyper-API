@@ -1,12 +1,12 @@
 # Orchestration locale du stack Dyper : dyper-ai (8000) + dyper-api (3000) + dyper-web (5173).
-# Prérequis : placer le modèle YOLO (yolo26l.pt) dans ./model et définir les clés dans un .env racine
+# Prérequis : placer le modèle YOLO (yolo26x.pt) dans ./model et définir les clés dans un .env racine
 # (AI_INTERNAL_KEY, APP_KEY, GROQ_API_KEY). Lancement : docker compose up --build
 services:
   dyper-ai:
     build: ./dyper-ai
     environment:
       AI_INTERNAL_KEY: ${AI_INTERNAL_KEY:-supersecretkey123}
-      YOLO_MODEL_VARIANT: ${YOLO_MODEL_VARIANT:-yolo26l}
+      YOLO_MODEL_VARIANT: ${YOLO_MODEL_VARIANT:-yolo26x}
       YOLO_MODEL_PATH: /model
       # Compréhension multimodale (vision + transcription audio) — optionnelle.
       GROQ_API_KEY: ${GROQ_API_KEY:-}

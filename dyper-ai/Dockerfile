@@ -2,9 +2,9 @@
 # Image du service d'inférence dyper-ai (Python / FastAPI / Ultralytics YOLO).
 FROM python:3.11-slim
 
-# Dépendances système pour OpenCV (libGL, glib).
+# Dépendances système : OpenCV (libGL, glib) + git (requis par pip pour `clip @ git+https://…`).
 RUN apt-get update \
-  && apt-get install -y --no-install-recommends libgl1 libglib2.0-0 \
+  && apt-get install -y --no-install-recommends libgl1 libglib2.0-0 git \
   && rm -rf /var/lib/apt/lists/*
 
 ENV PYTHONUNBUFFERED=1 \
@@ -14,8 +14,9 @@ ENV PYTHONUNBUFFERED=1 \
 
 WORKDIR /app
 
-# Torch CPU d'abord (évite de tirer les énormes wheels CUDA via ultralytics).
-RUN pip install --no-cache-dir torch torchvision --index-url https://download.pytorch.org/whl/cpu
+# Torch CUDA (cu128) d'abord, pour exploiter le GPU (L40S — driver 580 / CUDA 13). Installer
+# explicitement la wheel CUDA évite qu'ultralytics tire une variante non maîtrisée.
+RUN pip install --no-cache-dir torch torchvision --index-url https://download.pytorch.org/whl/cu128
 
 COPY requirements.txt ./
 RUN pip install --no-cache-dir -r requirements.txt

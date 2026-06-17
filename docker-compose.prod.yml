@@ -7,17 +7,24 @@
 # expose le domaine public. dyper-ai n'expose aucun port (interne, atteint via le réseau Docker).
 services:
   dyper-web:
+    # Redémarrage automatique au boot de la VM / après crash (sauf arrêt manuel explicite).
+    restart: unless-stopped
     build:
       context: ./dyper-web
       args:
         # Origine unique : la SPA appelle /api/v1 en relatif (mêmes cookies, pas de CORS).
         VITE_API_URL: ""
         VITE_APP_KEY: ${APP_KEY:-}
-    ports:
+    # !override : REMPLACE la liste de ports de la base (sinon compose fusionne et le binding
+    # public 0.0.0.0:5173 de docker-compose.yml subsisterait — fuite hors du reverse proxy).
+    ports: !override
       - "127.0.0.1:8080:80"
 
   dyper-api:
-    ports:
+    restart: unless-stopped
+    # !override idem : ne garder que la boucle locale (le 0.0.0.0:3000 de la base entrerait
+    # sinon en conflit avec ce binding 127.0.0.1:3000 → l'API ne s'exposerait sur aucun port).
+    ports: !override
       - "127.0.0.1:3000:3000"
     environment:
       NODE_ENV: production
@@ -27,3 +34,13 @@ services:
       MAX_CONCURRENT_ANALYSES: ${MAX_CONCURRENT_ANALYSES:-2}
 
   # dyper-ai : aucune section `ports` — volontairement non exposé publiquement.
+  # Accès GPU (L40S) pour l'inférence YOLO accélérée (torch CUDA cu128).
+  dyper-ai:
+    restart: unless-stopped
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]

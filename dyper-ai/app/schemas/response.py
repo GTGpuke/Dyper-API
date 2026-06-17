@@ -109,7 +109,7 @@ class ProcessResponse(BaseModel):
     requestId: str
     description: str = Field(..., description="Phrase naturelle générée à partir des détections.")
     visualization: Visualization
-    model: str = Field(..., description="Variante de modèle utilisée, ex. « yolo26l ».")
+    model: str = Field(..., description="Variante de modèle utilisée, ex. « yolo26x ».")
     processingTimeMs: int = Field(..., description="Durée de traitement en millisecondes.")
     # Champs optionnels (contrat rétrocompatible) ajoutés pour l'expérience conversationnelle.
     thumbnailBase64: str | None = Field(
