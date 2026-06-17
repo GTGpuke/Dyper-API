@@ -54,7 +54,7 @@ export const env = {
   MAX_VIDEO_SIZE_MB: Number.parseInt(optional('MAX_VIDEO_SIZE_MB', '100'), 10),
 
   // Types MIME autorisés pour les uploads (image + vidéo mp4).
-  ALLOWED_MIME_TYPES: ['image/jpeg', 'image/png', 'image/webp', 'image/gif', 'video/mp4'],
+  ALLOWED_MIME_TYPES: ['image/jpeg', 'image/png', 'image/webp', 'image/gif', 'video/mp4', 'video/webm'],
 
   // Chat LLM (Groq). Optionnel : /api/chat renvoie une erreur claire si absent.
   GROQ_API_KEY: optional('GROQ_API_KEY', ''),
@@ -62,6 +62,10 @@ export const env = {
   // Rate limiting.
   RATE_LIMIT_MAX: Number.parseInt(optional('RATE_LIMIT_MAX', '60'), 10),
   RATE_LIMIT_WINDOW: optional('RATE_LIMIT_WINDOW', '1 minute'),
+  // Limite de débit dédiée à l'analyse (par minute) : relevée pour autoriser le flux TEMPS RÉEL
+  // (détection en direct, plusieurs images/seconde). Les ressources restent bornées par le sémaphore
+  // de capacité (MAX_CONCURRENT_ANALYSES) et, hors temps réel, par le quota mensuel du forfait API.
+  ANALYZE_RATE_LIMIT_MAX: Number.parseInt(optional('ANALYZE_RATE_LIMIT_MAX', '600'), 10),
 
   // Allocation de capacité : nombre maximal d'analyses traitées simultanément par dyper-ai
   // (backend unique, pas de multi-instance). Au-delà, les requêtes patientent dans une file

@@ -4,20 +4,16 @@ Second frontend **minimal**, sur le même stack que `dyper-web` (**React + TypeS
 démontre l'usage de l'**API publique Dyper** :
 
 1. **Génère une clé API** (connexion/inscription puis `POST /api/v1/me/api-keys`).
-2. **Utilise cette clé** (`Authorization: Bearer …`) pour analyser en **temps réel** les images d'une
-   **caméra** ou d'un **partage d'écran**, via `POST /api/v1/analyze`.
-3. Affiche les boîtes de détection sur la vidéo et tient une **transcription cumulée** en dessous,
-   pilotée par un bouton **Démarrer / Arrêter**.
+2. **Capture un vrai flux vidéo** (caméra ou partage d'écran), **enregistré** via `MediaRecorder`,
+   tout en envoyant des frames à l'API (`Authorization: Bearer …`, `fast=true`) pour afficher les
+   **boîtes de détection en temps réel** — sans aucune description textuelle pendant la capture.
+3. **À l'arrêt**, la **vidéo enregistrée** est envoyée au **pipeline vidéo complet** (comme un envoi
+   vidéo classique) pour une **description détaillée** de ce qui s'est passé, avec **relecture**.
 
-> L'analyse temps réel envoie une frame à la fois (séquentiel, ≥ 1,2 s d'intervalle) pour rester sous
-> la limite de débit globale de la passerelle (60 req/min). La cadence réelle dépend de la vitesse du moteur.
-
-### Limites du forfait API « free »
-
-Une clé fraîchement générée est en forfait API **free** : **100 requêtes/mois** (et 60 req/min global).
-Une session de détection continue consomme donc vite ce quota — la démo **s'arrête proprement** quand
-le quota mensuel est atteint (message explicite). Pour une démonstration soutenue en temps réel, utilise
-une clé sur un forfait API supérieur.
+> **Mode temps réel.** Tous les appels portent `realtime=true` : les frames ne sont **ni persistées ni
+> décomptées du quota mensuel**, et l'endpoint d'analyse bénéficie d'une limite de débit relevée
+> (`ANALYZE_RATE_LIMIT_MAX`, défaut 600/min). La cadence réelle dépend de la vitesse du moteur ; le
+> résumé final nécessite une séquence ≤ 5 min.
 
 ## Prérequis
 

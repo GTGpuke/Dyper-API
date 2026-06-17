@@ -1,23 +1,20 @@
-// Démo de l'API Dyper en trois temps :
+// Démo de l'API Dyper :
 //   1. On se connecte (ou on crée un compte) puis on génère une CLÉ API.
-//   2. On capture la caméra OU un partage d'écran et on envoie chaque frame à l'API, authentifié
-//      UNIQUEMENT par la clé (Authorization: Bearer …) — preuve que la clé fonctionne seule.
-//   3. Chaque relevé est dessiné sur la vidéo et ajouté à la transcription cumulée, en dessous.
+//   2. On capture la caméra OU un partage d'écran comme un VRAI FLUX VIDÉO (enregistré via
+//      MediaRecorder). En parallèle, des frames sont envoyées à l'API (détection rapide, realtime)
+//      pour afficher les BOÎTES de détection en TEMPS RÉEL — authentifié uniquement par la clé.
+//   3. À l'arrêt, la vidéo enregistrée est envoyée au pipeline vidéo complet pour une DESCRIPTION
+//      DÉTAILLÉE de ce qui s'est passé (exactement comme un envoi vidéo classique), avec relecture.
 import { useEffect, useRef, useState } from 'react'
-import { analyzeFrame, ApiError, authenticate, createApiKey } from './api'
-import type { AnalysisResult, LogEntry, Source } from './types'
+import { analyzeFrame, analyzeRecording, ApiError, authenticate, createApiKey } from './api'
+import type { AnalysisResult, Source } from './types'
 
-// Largeur max de la frame envoyée : on réduit pour accélérer l'inférence et alléger la requête.
+// Largeur max de la frame envoyée pour la détection : réduite pour accélérer et alléger.
 const CAPTURE_MAX_WIDTH = 960
-// Intervalle minimal entre deux analyses (ms). En mode détection seule (temps réel), l'inférence
-// est rapide (~0,2-0,4 s) : on vise ~4 FPS. Le rate-limit serveur est relevé en conséquence.
+// Intervalle minimal entre deux détections (ms) : ~4 images/seconde pour des boîtes fluides.
 const MIN_INTERVAL_MS = 250
-// Cadence de la NARRATION : toutes les ~3 s, la frame courante est décrite en langage naturel
-// (pipeline complet / vision Groq) et ajoutée au transcript — en parallèle des boîtes (~4 FPS).
-const NARRATION_INTERVAL_MS = 3000
 
 const sleep = (ms: number): Promise<void> => new Promise((r) => setTimeout(r, ms))
-const nowTime = (): string => new Date().toLocaleTimeString('fr-FR')
 
 interface Status {
   text: string
@@ -38,33 +35,32 @@ export function App() {
   const [source, setSource] = useState<Source>('camera')
   const [running, setRunning] = useState(false)
   const [detStatus, setDetStatus] = useState<Status>({ text: '', kind: '' })
-  const [log, setLog] = useState<LogEntry[]>([])
 
-  // Refs (valeurs lues par la boucle asynchrone, hors cycle de rendu).
+  // Résumé final : vidéo enregistrée (relecture) + description détaillée « ce qui s'est passé ».
+  const [recordedUrl, setRecordedUrl] = useState<string | null>(null)
+  const [summary, setSummary] = useState<string | null>(null)
+  const [summarizing, setSummarizing] = useState(false)
+
+  // Refs (valeurs lues par la boucle asynchrone et l'enregistrement, hors cycle de rendu).
   const videoRef = useRef<HTMLVideoElement>(null)
   const overlayRef = useRef<HTMLCanvasElement>(null)
   const captureRef = useRef<HTMLCanvasElement | null>(null)
   const streamRef = useRef<MediaStream | null>(null)
   const runningRef = useRef(false)
-  const logIdRef = useRef(0)
-  const detCountRef = useRef(0)
-  const logBoxRef = useRef<HTMLOListElement>(null)
+  const recorderRef = useRef<MediaRecorder | null>(null)
+  const chunksRef = useRef<Blob[]>([])
 
-  // Défilement automatique de la transcription vers le bas à chaque ajout.
-  useEffect(() => {
-    if (logBoxRef.current) logBoxRef.current.scrollTop = logBoxRef.current.scrollHeight
-  }, [log])
-
-  // Arrêt propre du flux si le composant est démonté en pleine détection.
+  // Arrêt propre du flux si le composant est démonté en pleine capture.
   useEffect(() => {
     return () => stopStream()
   }, [])
 
-  const detectionCount = log.filter((e) => e.kind === 'detection').length
-
-  function addLog(kind: LogEntry['kind'], text: string): void {
-    setLog((prev) => [...prev, { id: logIdRef.current++, kind, time: nowTime(), text }])
-  }
+  // Libère l'URL objet de la vidéo enregistrée (changement ou démontage) pour éviter les fuites.
+  useEffect(() => {
+    return () => {
+      if (recordedUrl) URL.revokeObjectURL(recordedUrl)
+    }
+  }, [recordedUrl])
 
   // ─── Étape 1 : authentification + génération de clé ─────────────────────────────────────────
   async function handleGenerate(): Promise<void> {
@@ -95,7 +91,7 @@ export function App() {
     setAuthStatus({ text: 'Clé existante chargée.', kind: 'ok' })
   }
 
-  // ─── Étape 2 : capture + boucle d'analyse ───────────────────────────────────────────────────
+  // ─── Étape 2 : capture + enregistrement + boucle de détection ───────────────────────────────
   async function startStream(src: Source): Promise<void> {
     const stream =
       src === 'screen'
@@ -116,6 +112,55 @@ export function App() {
       streamRef.current = null
     }
     if (videoRef.current) videoRef.current.srcObject = null
+  }
+
+  // Format d'enregistrement supporté par le navigateur (mp4 de préférence, sinon webm).
+  function pickRecordMime(): string {
+    const candidates = ['video/mp4', 'video/webm;codecs=vp9', 'video/webm']
+    return candidates.find((m) => MediaRecorder.isTypeSupported(m)) ?? ''
+  }
+
+  // Enregistre la session (vidéo réelle) : à l'arrêt, sa vidéo alimente le résumé final + la relecture.
+  function startRecording(): void {
+    const stream = streamRef.current
+    if (!stream || typeof MediaRecorder === 'undefined') return
+    chunksRef.current = []
+    const mimeType = pickRecordMime()
+    const recorder = new MediaRecorder(
+      stream,
+      mimeType ? { mimeType, videoBitsPerSecond: 2_500_000 } : undefined
+    )
+    recorder.ondataavailable = (ev) => {
+      if (ev.data.size > 0) chunksRef.current.push(ev.data)
+    }
+    recorder.onstop = () => {
+      const blob = new Blob(chunksRef.current, { type: recorder.mimeType || mimeType || 'video/webm' })
+      setRecordedUrl((prev) => {
+        if (prev) URL.revokeObjectURL(prev)
+        return blob.size > 0 ? URL.createObjectURL(blob) : null
+      })
+      void summarize(blob)
+    }
+    recorder.start(1000)
+    recorderRef.current = recorder
+  }
+
+  // Résumé final : la vidéo enregistrée est envoyée au pipeline vidéo complet (suivi temporel +
+  // description) pour décrire « ce qui s'est passé » sur la durée — comme un envoi vidéo classique.
+  async function summarize(blob: Blob): Promise<void> {
+    if (!apiKey || blob.size === 0) return
+    setSummarizing(true)
+    setSummary(null)
+    try {
+      const result = await analyzeRecording(apiKey, blob)
+      setSummary(result.description || 'Aucune description disponible pour cette séquence.')
+      setDetStatus({ text: 'Résumé prêt.', kind: 'ok' })
+    } catch (e) {
+      setSummary(null)
+      setDetStatus({ text: `Résumé indisponible : ${e instanceof Error ? e.message : String(e)}`, kind: 'err' })
+    } finally {
+      setSummarizing(false)
+    }
   }
 
   // Capture la frame courante (redimensionnée) en blob JPEG.
@@ -166,13 +211,11 @@ export function App() {
     }
   }
 
-  // Boîtes en direct : on met à jour un compteur de statut (sans inonder le transcript, qui est
-  // réservé à la narration en langage naturel).
+  // Retour live (sans texte qui défile) : juste le nombre d'objets actuellement suivis.
   function updateLiveCount(result: AnalysisResult): void {
-    detCountRef.current += 1
     const n = result.visualization.objects.length
     setDetStatus({
-      text: n === 0 ? 'Aucun objet dans le champ…' : `${n} objet${n > 1 ? 's' : ''} suivi${n > 1 ? 's' : ''}…`,
+      text: n === 0 ? 'Aucun objet dans le champ…' : `${n} objet${n > 1 ? 's' : ''} détecté${n > 1 ? 's' : ''}…`,
       kind: 'ok',
     })
   }
@@ -192,34 +235,25 @@ export function App() {
     }
     runningRef.current = true
     setRunning(true)
-    detCountRef.current = 0
+    // Réinitialise le résumé précédent et démarre l'enregistrement de la nouvelle session.
+    setSummary(null)
+    setRecordedUrl((prev) => {
+      if (prev) URL.revokeObjectURL(prev)
+      return null
+    })
+    startRecording()
     setDetStatus({ text: 'Détection en cours…', kind: 'ok' })
-    addLog('marker', `▶ Détection démarrée (${source === 'screen' ? 'partage d’écran' : 'caméra'})`)
 
     const key = apiKey
-    let lastNarration = 0
     while (runningRef.current) {
       const started = performance.now()
       try {
         const blob = await grabFrame()
         if (blob) {
-          // Piste BOÎTES : détection rapide (fast) -> overlay temps réel.
           const result = await analyzeFrame(key, blob, true)
           if (runningRef.current) {
             drawDetections(result)
             updateLiveCount(result)
-          }
-          // Piste NARRATION : toutes les ~3 s, décrire la MÊME frame via le pipeline complet
-          // (vision Groq), en parallèle — n'interrompt jamais la cadence des boîtes.
-          if (runningRef.current && started - lastNarration >= NARRATION_INTERVAL_MS) {
-            lastNarration = started
-            analyzeFrame(key, blob, false)
-              .then((r) => {
-                if (runningRef.current && r.description) addLog('detection', r.description)
-              })
-              .catch(() => {
-                /* narration best-effort : on ne perturbe pas le direct en cas d'échec */
-              })
           }
         }
       } catch (e) {
@@ -229,12 +263,11 @@ export function App() {
           await sleep(e.retryAfter * 1000)
         } else if (e instanceof ApiError && e.code === 'QUOTA_EXCEEDED') {
           // Quota mensuel épuisé : définitif, on arrête proprement.
-          addLog('error', e.message)
           stopDetection()
           setDetStatus({ text: 'Quota mensuel API atteint.', kind: 'err' })
           break
         } else {
-          addLog('error', e instanceof Error ? e.message : String(e))
+          setDetStatus({ text: `Erreur : ${e instanceof Error ? e.message : String(e)}`, kind: 'err' })
         }
       }
       const elapsed = performance.now() - started
@@ -246,11 +279,12 @@ export function App() {
     if (!runningRef.current) return
     runningRef.current = false
     setRunning(false)
+    // Finalise l'enregistrement (déclenche onstop → résumé) AVANT de couper les pistes.
+    if (recorderRef.current && recorderRef.current.state !== 'inactive') recorderRef.current.stop()
+    recorderRef.current = null
     stopStream()
     clearOverlay()
-    setDetStatus({ text: 'Arrêté.', kind: '' })
-    const n = detCountRef.current
-    addLog('marker', `■ Détection arrêtée — ${n} relevé${n > 1 ? 's' : ''}`)
+    setDetStatus({ text: 'Capture terminée — analyse du résumé…', kind: '' })
   }
 
   const maskedKey =
@@ -261,8 +295,8 @@ export function App() {
       <header className="head">
         <h1>Dyper · Démo API</h1>
         <p className="sub">
-          Détection d'objets en temps réel via l'API publique — caméra ou partage d'écran,
-          authentifiée par une clé API.
+          Détection d'objets en temps réel via l'API publique (caméra ou partage d'écran), puis
+          description détaillée de la séquence enregistrée — authentifié par une clé API.
         </p>
       </header>
 
@@ -331,10 +365,10 @@ export function App() {
         )}
       </section>
 
-      {/* Étape 2 — Détection temps réel. */}
+      {/* Étape 2 — Capture + détection temps réel (boîtes). */}
       <section className="card">
         <h2>
-          <span className="step">2</span> Détection temps réel
+          <span className="step">2</span> Capture & détection temps réel
         </h2>
         <div className="row">
           <label className="seg">
@@ -350,10 +384,10 @@ export function App() {
           </label>
           <button
             className={`btn btn-primary ${running ? 'recording' : ''}`}
-            disabled={!apiKey}
+            disabled={!apiKey || summarizing}
             onClick={() => (running ? stopDetection() : void startDetection())}
           >
-            {running ? 'Arrêter la détection' : 'Démarrer la détection'}
+            {running ? 'Arrêter & analyser' : 'Démarrer la capture'}
           </button>
           <span className={`status ${detStatus.kind}`}>{detStatus.text}</span>
         </div>
@@ -364,40 +398,19 @@ export function App() {
         </div>
       </section>
 
-      {/* Étape 3 — Transcription cumulée. */}
-      <section className="card">
-        <h2>
-          <span className="step">3</span> Transcription
-        </h2>
-        <div className="row">
-          <span className="status">
-            {detectionCount} relevé{detectionCount > 1 ? 's' : ''}
-          </span>
-          <button
-            className="btn btn-ghost"
-            onClick={() => {
-              setLog([])
-              detCountRef.current = 0
-            }}
-          >
-            Effacer
-          </button>
-        </div>
-        <ol className="log" ref={logBoxRef}>
-          {log.map((e) => (
-            <li key={e.id}>
-              {e.kind === 'marker' ? (
-                <span className="marker">{e.text}</span>
-              ) : (
-                <>
-                  <span className="t">{e.time}</span>
-                  <span className={e.kind === 'error' ? 'err' : ''}>{e.text}</span>
-                </>
-              )}
-            </li>
-          ))}
-        </ol>
-      </section>
+      {/* Étape 3 — Résumé final : relecture de la vidéo + description détaillée. */}
+      {(recordedUrl || summarizing || summary) && (
+        <section className="card">
+          <h2>
+            <span className="step">3</span> Résumé de la capture
+          </h2>
+          {recordedUrl && <video className="replay" src={recordedUrl} controls />}
+          {summarizing && (
+            <p className="status">⏳ Analyse de la séquence enregistrée (pipeline vidéo)…</p>
+          )}
+          {summary && <p className="summary">{summary}</p>}
+        </section>
+      )}
     </main>
   )
 }

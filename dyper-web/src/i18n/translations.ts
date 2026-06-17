@@ -427,7 +427,7 @@ const fr: Dict = {
   'docs.ep.login.desc': 'Authentifie un utilisateur et ouvre une session.',
   'docs.ep.logout.desc': 'Ferme la session (efface le cookie).',
   'docs.ep.analyzeFile.desc':
-    "Analyse un fichier image ou vidéo (≤ 5 min). Les tailles maximales dépendent du forfait (image 10–20 Mo, vidéo 30–100 Mo). Les vidéos sont échantillonnées sur toute leur durée puis suivies image par image (objets localisés et identifiés dans le temps).",
+    "Analyse un fichier image ou vidéo (≤ 5 min). Les tailles maximales dépendent du forfait (image 10–20 Mo, vidéo 30–100 Mo). Les vidéos sont échantillonnées sur toute leur durée puis suivies image par image (objets localisés et identifiés dans le temps). Pour un flux TEMPS RÉEL (caméra, partage d'écran), envoyez les images une par une avec « fast » (détection seule, faible latence) et « realtime » (image de preview non persistée et hors quota mensuel) — cf. l'application de démonstration.",
   'docs.ep.analyzeUrl.desc':
     'Analyse une URL publique : image, vidéo YouTube ou clip Twitch (téléchargement contrôlé, vidéos ≤ 5 min).',
   'docs.ep.analyzePrompt.desc': 'Analyse un prompt texte seul (sans média).',
@@ -472,6 +472,10 @@ const fr: Dict = {
   'docs.p.prompt': 'Consigne ou question optionnelle accompagnant le média.',
   'docs.p.promptOnly': 'Description textuelle de la scène à analyser.',
   'docs.p.lang': 'Langue de la description générée.',
+  'docs.p.fast':
+    "Détection seule (objets + boîtes), sans description en langage naturel ni vocabulaire ouvert : latence minimale pour le temps réel. Par défaut : false (pipeline complet).",
+  'docs.p.realtime':
+    "Image de preview d'un flux temps réel : ni persistée dans l'historique, ni décomptée du quota mensuel. À combiner avec « fast » pour la détection en direct.",
   'docs.p.url': "URL publique de l'image (http/https).",
   'docs.p.page': 'Numéro de page (défaut 1).',
   'docs.p.limit': "Nombre d'éléments par page.",
@@ -1067,7 +1071,7 @@ const en: Dict = {
   'docs.ep.login.desc': 'Authenticates a user and opens a session.',
   'docs.ep.logout.desc': 'Closes the session (clears the cookie).',
   'docs.ep.analyzeFile.desc':
-    'Analyzes an image or video file (≤ 5 min). Maximum sizes depend on the plan (image 10–20 MB, video 30–100 MB). Videos are sampled across their full duration then tracked frame by frame (objects located and identified over time).',
+    'Analyzes an image or video file (≤ 5 min). Maximum sizes depend on the plan (image 10–20 MB, video 30–100 MB). Videos are sampled across their full duration then tracked frame by frame (objects located and identified over time). For a REAL-TIME stream (camera, screen share), send frames one by one with "fast" (detection only, low latency) and "realtime" (preview frame, not persisted and excluded from the monthly quota) — see the demo app.',
   'docs.ep.analyzeUrl.desc':
     'Analyzes a public URL: image, YouTube video or Twitch clip (controlled download, videos ≤ 5 min).',
   'docs.ep.analyzePrompt.desc': 'Analyzes a text-only prompt (no media).',
@@ -1111,6 +1115,10 @@ const en: Dict = {
   'docs.p.prompt': 'Optional instruction or question accompanying the media.',
   'docs.p.promptOnly': 'Text description of the scene to analyze.',
   'docs.p.lang': 'Language of the generated description.',
+  'docs.p.fast':
+    'Detection only (objects + boxes), without natural-language description or open vocabulary: minimal latency for real time. Default: false (full pipeline).',
+  'docs.p.realtime':
+    'Preview frame of a real-time stream: neither stored in history nor counted against the monthly quota. Combine with "fast" for live detection.',
   'docs.p.url': 'Public URL of the image (http/https).',
   'docs.p.page': 'Page number (default 1).',
   'docs.p.limit': 'Number of items per page.',

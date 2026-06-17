@@ -94,11 +94,14 @@ export async function analyzeFile(request: FastifyRequest, reply: FastifyReply):
   const isVideo = mimetype.startsWith('video/');
   const userId = request.authUser?.id as string;
   const viaApi = request.authVia === 'apikey';
-  const priority = viaApi
-    ? apiQueuePriority(
-        await assertApiWithinQuota(userId, { isVideo, fileBytes: fileBuffer.length })
-      )
-    : queuePriority(await assertWithinQuota(userId, { isVideo, fileBytes: fileBuffer.length }));
+  // Temps réel : exempt de quota ET des limites de taille (flux de preview / session de démo),
+  // en priorité basse pour ne pas devancer les analyses comptabilisées. Sinon : contrôle normal.
+  let priority = 0;
+  if (!realtime) {
+    priority = viaApi
+      ? apiQueuePriority(await assertApiWithinQuota(userId, { isVideo, fileBytes: fileBuffer.length }))
+      : queuePriority(await assertWithinQuota(userId, { isVideo, fileBytes: fileBuffer.length }));
+  }
 
   logger.info('Analyse de fichier démarrée.', { requestId, mimetype, viaApi });
 

@@ -6,12 +6,16 @@ import {
   analyzeUrl,
   resolveThumbnail,
 } from '../../controllers/analyze/analyze.controller';
+import { env } from '../../services/env.service';
 
 export async function analyzeRoutes(app: FastifyInstance): Promise<void> {
   // POST /api/analyze — fichier uploadé (multipart/form-data : champ « file », + prompt/lang optionnels).
+  // Limite de débit relevée (vs globale) pour autoriser le flux TEMPS RÉEL (détection en direct,
+  // plusieurs images/seconde) ; les ressources restent bornées par le sémaphore de capacité.
   app.post(
     '/',
     {
+      config: { rateLimit: { max: env.ANALYZE_RATE_LIMIT_MAX, timeWindow: '1 minute' } },
       schema: {
         tags: ['Analyze'],
         summary: 'Analyse un fichier (image ou vidéo) uploadé',

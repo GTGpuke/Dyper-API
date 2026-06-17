@@ -98,6 +98,8 @@ export const API_SECTIONS: ApiSection[] = [
           { name: 'file', type: 'fichier', required: true, descKey: 'docs.p.file' },
           { name: 'prompt', type: 'string', required: false, descKey: 'docs.p.prompt' },
           { name: 'lang', type: '"fr" | "en"', required: false, descKey: 'docs.p.lang' },
+          { name: 'fast', type: 'boolean', required: false, descKey: 'docs.p.fast' },
+          { name: 'realtime', type: 'boolean', required: false, descKey: 'docs.p.realtime' },
         ],
         responseExample: json({
           success: true,

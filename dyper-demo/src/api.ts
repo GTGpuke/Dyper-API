@@ -61,19 +61,16 @@ export async function createApiKey(): Promise<string> {
   return key.secret as string
 }
 
-/**
- * Analyse une image (frame) authentifiée UNIQUEMENT par la clé API (Authorization: Bearer …).
- * `realtime=true` -> frame de preview (ni persistée, ni décomptée du quota).
- * `fast=true` (défaut) -> détection seule (rapide, pour les boîtes en direct).
- * `fast=false` -> pipeline complet avec description en langage naturel (pour la narration).
- */
-export async function analyzeFrame(
+// Poste un média à /api/v1/analyze (authentification par clé API seule). `realtime=true` partout :
+// ni persistance, ni décompte du quota mensuel (flux de preview / session de démo).
+async function postAnalyze(
   apiKey: string,
   blob: Blob,
-  fast = true
+  filename: string,
+  fast: boolean
 ): Promise<AnalysisResult> {
   const form = new FormData()
-  form.append('file', blob, 'frame.jpg')
+  form.append('file', blob, filename)
   form.append('realtime', 'true')
   form.append('fast', String(fast))
   const res = await fetch('/api/v1/analyze', {
@@ -88,4 +85,22 @@ export async function analyzeFrame(
   }
   const data = await res.json()
   return data.result as AnalysisResult
+}
+
+/**
+ * Analyse une frame (image) du flux en direct.
+ * `fast=true` (défaut) -> détection seule (rapide, pour les boîtes en direct).
+ * `fast=false` -> pipeline complet avec description en langage naturel (pour la narration live).
+ */
+export function analyzeFrame(apiKey: string, blob: Blob, fast = true): Promise<AnalysisResult> {
+  return postAnalyze(apiKey, blob, 'frame.jpg', fast)
+}
+
+/**
+ * Analyse la VIDÉO enregistrée de la session (pipeline vidéo complet : suivi temporel + description)
+ * pour produire le résumé final « ce qui s'est passé pendant la capture ».
+ */
+export function analyzeRecording(apiKey: string, blob: Blob): Promise<AnalysisResult> {
+  const ext = blob.type.includes('mp4') ? 'mp4' : 'webm'
+  return postAnalyze(apiKey, blob, `capture.${ext}`, false)
 }

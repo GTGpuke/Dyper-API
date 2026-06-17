@@ -37,11 +37,3 @@ export interface AnalysisResult {
 
 /** Source du flux temps réel. */
 export type Source = 'camera' | 'screen'
-
-/** Une entrée de la transcription cumulée. */
-export interface LogEntry {
-  id: number
-  kind: 'detection' | 'marker' | 'error'
-  time: string
-  text: string
-}
