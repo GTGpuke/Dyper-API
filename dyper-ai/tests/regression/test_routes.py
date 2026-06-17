@@ -31,7 +31,7 @@ class TestRouteHealth:
         response = client.get("/health")
         data = response.json()
         assert data["status"] == "ok"
-        assert data["model"] == "yolo26l"
+        assert data["model"] == "yolo26x"
 
 
 @pytest.mark.regression
@@ -166,7 +166,7 @@ class TestRouteProcess:
         assert "person" in labels
         assert "rock" in labels
         # Étiquette honnête : les deux modèles sont crédités dans la réponse.
-        assert data["model"] == "yolo26l + yolov8x-worldv2"
+        assert data["model"] == "yolo26x + yolov8x-worldv2"
         # La scène vue par la vision remplace l'heuristique COCO.
         assert data["visualization"]["scene"]["label"] == "zoo en plein air"
         assert data["visualization"]["scene"]["indoor"] is False

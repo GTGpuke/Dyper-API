@@ -333,46 +333,61 @@ async def process(
             # fusionnées (une seule par objet, COCO prioritaire). La vision « décrit puis ancre » :
             # ses éléments forment le vocabulaire ouvert, élargi à la base LVIS si
             # IMAGE_OPEN_VOCAB_INCLUDE_BASE (couverture maximale en image).
-            world = getattr(request.app.state, "world", None)
-            vision = await vision_llm.describe_and_extract([image], body.lang, body.prompt)
-
-            coco_objects = extract_objects(
-                runner.predict(image, conf_threshold=settings.DISPLAY_MIN_CONFIDENCE)
-            )
-            world_ready = world is not None and world.is_ready()
-            vocabulary = (
-                build_vocabulary(
-                    list(vision.elements) if vision else [],
-                    include_base=settings.IMAGE_OPEN_VOCAB_INCLUDE_BASE,
+            if body.fast:
+                # Chemin TEMPS RÉEL : détection COCO seule — ni vision LLM (appel réseau Groq),
+                # ni vocabulaire ouvert (encodage CLIP), ni miniature. Latence minimale pour la
+                # détection en direct (cadence élevée côté client).
+                objects = mark_priority(
+                    extract_objects(
+                        runner.predict(image, conf_threshold=settings.DISPLAY_MIN_CONFIDENCE)
+                    ),
+                    settings.DISPLAY_MIN_CONFIDENCE,
                 )
-                if world_ready
-                else []
-            )
-            # World n'est fusionné que s'il a un vocabulaire à chercher : sans base LVIS, un
-            # vocabulaire vide (aucun élément vision) revient à COCO seul.
-            if world_ready and world is not None and vocabulary:
-                world_objects = extract_objects(world.detect_classes(image, vocabulary))
-                objects = merge_detections(
-                    coco_objects, world_objects, settings.MERGE_IOU_THRESHOLD
+                result = build_response(
+                    objects, image, body.prompt, body.lang, body.requestId, runner.model_name
                 )
-                model_label = f"{runner.model_name} + {world.model_name}"
+                result.sourceWidth, result.sourceHeight = image.size
             else:
-                objects = coco_objects
-                model_label = runner.model_name
+                world = getattr(request.app.state, "world", None)
+                vision = await vision_llm.describe_and_extract([image], body.lang, body.prompt)
 
-            # Les détections sous le seuil (vocabulaire ouvert) sont conservées mais marquées
-            # non prioritaires : l'affichage les présente décochées par défaut, et le compte
-            # rendu / la scène ne reposent que sur les détections prioritaires.
-            objects = mark_priority(objects, settings.DISPLAY_MIN_CONFIDENCE)
+                coco_objects = extract_objects(
+                    runner.predict(image, conf_threshold=settings.DISPLAY_MIN_CONFIDENCE)
+                )
+                world_ready = world is not None and world.is_ready()
+                vocabulary = (
+                    build_vocabulary(
+                        list(vision.elements) if vision else [],
+                        include_base=settings.IMAGE_OPEN_VOCAB_INCLUDE_BASE,
+                    )
+                    if world_ready
+                    else []
+                )
+                # World n'est fusionné que s'il a un vocabulaire à chercher : sans base LVIS, un
+                # vocabulaire vide (aucun élément vision) revient à COCO seul.
+                if world_ready and world is not None and vocabulary:
+                    world_objects = extract_objects(world.detect_classes(image, vocabulary))
+                    objects = merge_detections(
+                        coco_objects, world_objects, settings.MERGE_IOU_THRESHOLD
+                    )
+                    model_label = f"{runner.model_name} + {world.model_name}"
+                else:
+                    objects = coco_objects
+                    model_label = runner.model_name
 
-            result = build_response(
-                objects, image, body.prompt, body.lang, body.requestId, model_label
-            )
+                # Les détections sous le seuil (vocabulaire ouvert) sont conservées mais marquées
+                # non prioritaires : l'affichage les présente décochées par défaut, et le compte
+                # rendu / la scène ne reposent que sur les détections prioritaires.
+                objects = mark_priority(objects, settings.DISPLAY_MIN_CONFIDENCE)
 
-            # Miniature + dimensions du référentiel des boîtes (image effectivement analysée).
-            result.thumbnailBase64 = to_thumbnail_base64(image)
-            result.sourceWidth, result.sourceHeight = image.size
-            _apply_vision(result, vision)
+                result = build_response(
+                    objects, image, body.prompt, body.lang, body.requestId, model_label
+                )
+
+                # Miniature + dimensions du référentiel des boîtes (image effectivement analysée).
+                result.thumbnailBase64 = to_thumbnail_base64(image)
+                result.sourceWidth, result.sourceHeight = image.size
+                _apply_vision(result, vision)
 
         elif body.type == "video":
             if not body.videoBase64 and not body.videoUrl:

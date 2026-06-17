@@ -24,7 +24,7 @@ class TestPipelineImage:
     def test_detect_model_name_dans_reponse(self, mock_runner, blank_image):
         """Vérifie que le nom du modèle est correct dans la réponse."""
         result = detect(blank_image, mock_runner, None, "fr", "req-001", 50)
-        assert result.model == "yolo26l"
+        assert result.model == "yolo26x"
 
     def test_detect_avec_objets_detectes(self, mock_runner, blank_image):
         """Vérifie que les objets détectés sont correctement extraits des résultats YOLO."""
@@ -55,7 +55,7 @@ class TestPipelineImage:
     def test_detect_sans_boites(self, blank_image):
         """Vérifie que detect() gère correctement un résultat YOLO sans boîtes."""
         runner = MagicMock()
-        runner.model_name = "yolo26l"
+        runner.model_name = "yolo26x"
         mock_results = MagicMock()
         mock_results.boxes = None
         runner.predict.return_value = mock_results

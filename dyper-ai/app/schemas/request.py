@@ -27,6 +27,13 @@ class ProcessRequest(BaseModel):
         default=None, max_length=2000, description="Contexte textuel libre (optionnel)."
     )
     lang: str = Field(default="fr", description="Langue de la description : « fr » ou « en ».")
+    fast: bool = Field(
+        default=False,
+        description=(
+            "Mode temps réel (type=image) : détection YOLO COCO seule, sans vision LLM ni "
+            "vocabulaire ouvert — latence minimale pour la détection en direct."
+        ),
+    )
 
     @model_validator(mode="after")
     def _check_payload(self) -> "ProcessRequest":

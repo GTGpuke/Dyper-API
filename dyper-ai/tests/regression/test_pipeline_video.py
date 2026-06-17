@@ -355,7 +355,7 @@ class TestAggregateVideoResponses:
                 text=[],
                 tags=[label],
             ),
-            model="yolo26l",
+            model="yolo26x",
             processingTimeMs=10,
         )
 

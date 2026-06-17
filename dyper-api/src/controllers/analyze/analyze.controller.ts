@@ -61,6 +61,10 @@ export async function analyzeFile(request: FastifyRequest, reply: FastifyReply):
   let mimetype: string | undefined;
   let prompt: string | undefined;
   let lang: string | undefined;
+  // Mode temps réel (démo) : frame de preview — non persistée et hors comptage de quota.
+  let realtime = false;
+  // Pipeline allégé (détection seule, sans vision LLM ni vocabulaire ouvert) — indépendant de realtime.
+  let fast = false;
 
   for await (const part of request.parts()) {
     if (part.type === 'file') {
@@ -74,6 +78,10 @@ export async function analyzeFile(request: FastifyRequest, reply: FastifyReply):
       prompt = String(part.value);
     } else if (part.fieldname === 'lang') {
       lang = String(part.value);
+    } else if (part.fieldname === 'realtime') {
+      realtime = String(part.value) === 'true';
+    } else if (part.fieldname === 'fast') {
+      fast = String(part.value) === 'true';
     }
   }
 
@@ -108,22 +116,27 @@ export async function analyzeFile(request: FastifyRequest, reply: FastifyReply):
       mimetype,
       prompt,
       lang,
+      fast,
       signal: ac.signal,
     });
     const processingTime = Date.now() - startTime;
     const resolvedLang = lang ?? 'fr';
 
     logger.info('Analyse de fichier terminée.', { requestId, processingTime });
-    // Les vidéos originales sont conservées sur disque pour la relecture annotée.
-    await persistAnalysis(
-      aiResponse,
-      isVideo ? 'video' : 'image',
-      resolvedLang,
-      request.authUser?.id ?? null,
-      isVideo ? fileBuffer : null
-    );
-    if (viaApi) await recordApiUsage(userId);
-    else await recordAnalysisUsage(userId, { isVideo, aiResponse });
+    // Temps réel : on ne persiste pas la frame et on ne décompte pas le quota (flux de preview
+    // continu). Sinon, parcours normal : persistance + comptage d'usage.
+    if (!realtime) {
+      // Les vidéos originales sont conservées sur disque pour la relecture annotée.
+      await persistAnalysis(
+        aiResponse,
+        isVideo ? 'video' : 'image',
+        resolvedLang,
+        request.authUser?.id ?? null,
+        isVideo ? fileBuffer : null
+      );
+      if (viaApi) await recordApiUsage(userId);
+      else await recordAnalysisUsage(userId, { isVideo, aiResponse });
+    }
 
     sendResult(reply, requestId, processingTime, aiResponse, resolvedLang);
   } catch (e) {

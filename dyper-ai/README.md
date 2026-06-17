@@ -27,7 +27,7 @@ Docs Swagger auto-générées : http://localhost:8000/docs.
 
 ## Modèle YOLO
 
-Le fichier `.pt` correspondant à `YOLO_MODEL_VARIANT` (`yolo26l` par défaut) doit être présent dans `YOLO_MODEL_PATH` (`../model`). En son absence, le service **échoue au démarrage** avec un message explicite. Variantes : `yolo26l` (large) ou `yolo26x` (extra-large).
+Le fichier `.pt` correspondant à `YOLO_MODEL_VARIANT` (`yolo26x` par défaut) doit être présent dans `YOLO_MODEL_PATH` (`../model`). En son absence, le service **échoue au démarrage** avec un message explicite.
 
 ## Configuration
 

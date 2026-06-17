@@ -9,8 +9,12 @@ import type { AnalysisResult, LogEntry, Source } from './types'
 
 // Largeur max de la frame envoyée : on réduit pour accélérer l'inférence et alléger la requête.
 const CAPTURE_MAX_WIDTH = 960
-// Intervalle minimal entre deux analyses (ms) : borne le débit sous la limite globale (60 req/min).
-const MIN_INTERVAL_MS = 1200
+// Intervalle minimal entre deux analyses (ms). En mode détection seule (temps réel), l'inférence
+// est rapide (~0,2-0,4 s) : on vise ~4 FPS. Le rate-limit serveur est relevé en conséquence.
+const MIN_INTERVAL_MS = 250
+// Cadence de la NARRATION : toutes les ~3 s, la frame courante est décrite en langage naturel
+// (pipeline complet / vision Groq) et ajoutée au transcript — en parallèle des boîtes (~4 FPS).
+const NARRATION_INTERVAL_MS = 3000
 
 const sleep = (ms: number): Promise<void> => new Promise((r) => setTimeout(r, ms))
 const nowTime = (): string => new Date().toLocaleTimeString('fr-FR')
@@ -162,17 +166,15 @@ export function App() {
     }
   }
 
-  function addDetection(result: AnalysisResult): void {
+  // Boîtes en direct : on met à jour un compteur de statut (sans inonder le transcript, qui est
+  // réservé à la narration en langage naturel).
+  function updateLiveCount(result: AnalysisResult): void {
     detCountRef.current += 1
-    const objects = result.visualization.objects
-    const scene = result.visualization.scene
-    if (objects.length === 0) {
-      addLog('detection', 'rien détecté')
-      return
-    }
-    const labels = objects.map((o) => `${o.label} (${Math.round(o.confidence * 100)}%)`).join(', ')
-    const sceneTxt = scene?.label ? ` · scène : ${scene.label}` : ''
-    addLog('detection', `${objects.length} objet${objects.length > 1 ? 's' : ''} — ${labels}${sceneTxt}`)
+    const n = result.visualization.objects.length
+    setDetStatus({
+      text: n === 0 ? 'Aucun objet dans le champ…' : `${n} objet${n > 1 ? 's' : ''} suivi${n > 1 ? 's' : ''}…`,
+      kind: 'ok',
+    })
   }
 
   async function startDetection(): Promise<void> {
@@ -195,15 +197,29 @@ export function App() {
     addLog('marker', `▶ Détection démarrée (${source === 'screen' ? 'partage d’écran' : 'caméra'})`)
 
     const key = apiKey
+    let lastNarration = 0
     while (runningRef.current) {
       const started = performance.now()
       try {
         const blob = await grabFrame()
         if (blob) {
-          const result = await analyzeFrame(key, blob)
+          // Piste BOÎTES : détection rapide (fast) -> overlay temps réel.
+          const result = await analyzeFrame(key, blob, true)
           if (runningRef.current) {
             drawDetections(result)
-            addDetection(result)
+            updateLiveCount(result)
+          }
+          // Piste NARRATION : toutes les ~3 s, décrire la MÊME frame via le pipeline complet
+          // (vision Groq), en parallèle — n'interrompt jamais la cadence des boîtes.
+          if (runningRef.current && started - lastNarration >= NARRATION_INTERVAL_MS) {
+            lastNarration = started
+            analyzeFrame(key, blob, false)
+              .then((r) => {
+                if (runningRef.current && r.description) addLog('detection', r.description)
+              })
+              .catch(() => {
+                /* narration best-effort : on ne perturbe pas le direct en cas d'échec */
+              })
           }
         }
       } catch (e) {

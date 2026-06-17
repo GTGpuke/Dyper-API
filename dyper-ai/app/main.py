@@ -46,6 +46,21 @@ async def lifespan(app: FastAPI):
         world = None
     app.state.world = world
 
+    # Préchauffage : la 1re détection à vocabulaire ouvert encode le vocabulaire via CLIP — opération
+    # lourde et SYNCHRONE qui, à froid, bloque le worker plusieurs dizaines de secondes (timeout de la
+    # passerelle sur le 1er appel réel). On paie ce coût ici, au démarrage, pour que la 1re requête
+    # utilisateur soit déjà chaude. Best-effort : un échec ne bloque jamais le service.
+    try:
+        from PIL import Image as _Image
+
+        _warm = _Image.new("RGB", (640, 480), (127, 127, 127))
+        runner.predict(_warm)
+        if world is not None:
+            world.detect_classes(_warm, ["person", "car", "dog"])
+        logger.info("Préchauffage des modèles terminé (YOLO + vocabulaire ouvert).")
+    except Exception as exc:
+        logger.warning(f"Préchauffage ignoré (non bloquant) : {exc}")
+
     yield
     logger.info("Arrêt du service dyper-ai.")
 

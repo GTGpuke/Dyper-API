@@ -21,7 +21,7 @@ class Settings(BaseSettings):
     AI_INTERNAL_KEY: str
 
     # --- Modèle YOLO local ---
-    # Variante du modèle : "yolo26x" (extra-large, par défaut) ou "yolo26l" (large, plus léger).
+    # Variante du modèle : "yolo26x" (extra-large), seule variante prise en charge en production.
     YOLO_MODEL_VARIANT: str = "yolo26x"
     # Dossier contenant les fichiers .pt (relatif à dyper-ai/). Non commité.
     YOLO_MODEL_PATH: str = "../model"

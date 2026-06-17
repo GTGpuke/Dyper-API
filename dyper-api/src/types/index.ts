@@ -100,6 +100,8 @@ export interface ProcessOptions {
   videoUrl?: string;
   prompt?: string | null;
   lang?: string;
+  /** Mode temps réel : détection seule côté dyper-ai (YOLO COCO), sans vision LLM ni vocabulaire ouvert. */
+  fast?: boolean;
   /** Signal d'annulation : interrompt l'appel à dyper-ai si le client se déconnecte. */
   signal?: AbortSignal;
 }

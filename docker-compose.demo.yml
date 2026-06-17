@@ -1,0 +1,17 @@
+# Démo API (dyper-demo) — SPA statique nginx, exposée sur demo.dyper-ai.fr via Caddy.
+# Indépendante du stack principal : l'app appelle l'API en relatif (/api, /health) et c'est
+# Caddy qui proxifie ces chemins vers dyper-api. Le conteneur ne sert que des fichiers statiques.
+#
+#   docker compose -p dyper-demo -f docker-compose.demo.yml up -d --build
+#
+services:
+  dyper-demo:
+    build:
+      context: ./dyper-demo
+      args:
+        # Doit correspondre à APP_KEY de dyper-api (lu depuis le .env racine).
+        VITE_APP_KEY: ${APP_KEY:-}
+    restart: unless-stopped
+    ports:
+      # Boucle locale uniquement : seul Caddy expose le public (demo.dyper-ai.fr).
+      - "127.0.0.1:8081:80"

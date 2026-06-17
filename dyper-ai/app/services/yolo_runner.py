@@ -33,7 +33,7 @@ class YoloRunner:
                 f"Modèle YOLO introuvable : {path.resolve()}. "
                 f"Placez le fichier « {self.model_name}.pt » dans le dossier "
                 f"« {settings.YOLO_MODEL_PATH} » (voir le README de dyper-ai). "
-                "Variantes attendues : yolo26l.pt ou yolo26x.pt."
+                "Variante attendue : yolo26x.pt."
             )
 
         # Import différé : évite de charger PyTorch tant que le modèle n'est pas requis.

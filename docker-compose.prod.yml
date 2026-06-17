@@ -32,6 +32,10 @@ services:
       CORS_ORIGIN: ${CORS_ORIGIN:-https://dyper.app}
       # Allocation de capacité : ajuster selon la VRAM du GPU (cf. docs/HOSTING.md §3).
       MAX_CONCURRENT_ANALYSES: ${MAX_CONCURRENT_ANALYSES:-2}
+      # Marge sur l'appel image -> dyper-ai (défaut app 30 s) : absorbe une 1re inférence lourde.
+      AI_REQUEST_TIMEOUT_MS: ${AI_REQUEST_TIMEOUT_MS:-60000}
+      # Débit relevé : la démo temps réel envoie ~4 frames/s (défaut 60/min = 1/s sinon 429).
+      RATE_LIMIT_MAX: ${RATE_LIMIT_MAX:-60}
 
   # dyper-ai : aucune section `ports` — volontairement non exposé publiquement.
   # Le GPU (L40S) et la wheel Torch CUDA sont fournis par la surcharge docker-compose.gpu.yml,

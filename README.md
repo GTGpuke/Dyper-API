@@ -10,7 +10,8 @@ Plateforme de reconnaissance visuelle basée sur YOLO. Accepte une image, une vi
 |---|---|---|---|
 | `dyper-ai` | **Python / FastAPI / Ultralytics** | Pipeline « **décrire puis ancrer** » : le modèle vision (Llama 4 Scout via Groq) liste les éléments visibles, puis **YOLO-World** (vocabulaire ouvert, GPU) les localise — cadres alignés sur la description. Repli YOLO COCO sans clé. + Whisper (audio) et AudD (musique) | 8000 |
 | `dyper-api` | **Fastify / TypeScript** (passerelle pro) | API publique + comptes + conversations + historique (SQLite) + médias | 3000 |
-| `dyper-web` | **React / TypeScript / Vite / Tailwind** | SPA conversationnelle (chat façon claude.ai, streaming SSE), historique, dashboard, paramètres, docs API publiques (`/api-docs`), i18n FR/EN, mode sombre | 5173 |
+| `dyper-web` | **React / TypeScript / Vite / Tailwind** | SPA conversationnelle (chat façon claude.ai, streaming SSE), historique, dashboard, paramètres, docs API publiques (`/api-docs`), i18n FR/EN, mode sombre | 5173 (dev) / 8080 (prod) |
+| `dyper-demo` | **React / TypeScript / Vite** | Démo de l'API publique : génération d'une clé API + détection temps réel (caméra / partage d'écran). Origine unique (Caddy proxifie `/api`) | 5174 (dev) / 8081 (prod) |
 
 **Stack qualité de la passerelle `dyper-api`** : Fastify 5, TypeScript strict, Sequelize (SQLite), Winston, Swagger (`/docs`), Biome (lint/format), Jest, PM2, Docker, CI GitHub Actions. Authentification frontend → passerelle par header **`X-App-Key`** ; passerelle → `dyper-ai` par header **`X-Internal-Key`**. **Comptes utilisateurs** : JWT en cookie httpOnly (bcrypt), données cloisonnées par utilisateur.
 
@@ -20,25 +21,51 @@ Plateforme de reconnaissance visuelle basée sur YOLO. Accepte une image, une vi
 
 ## Démarrage rapide (Docker)
 
-Prérequis : Docker + le modèle YOLO dans `./model` (voir [Modèles YOLO](#modèles-yolo)).
+Prérequis : Docker + le modèle YOLO dans `./model` (voir [Modèles YOLO](#modèles-yolo)) + un
+fichier **`.env` à la racine** (lu automatiquement par `docker compose`) :
 
 ```bash
-# À la racine, créer un .env avec au moins :
-#   APP_KEY=$(openssl rand -hex 32)
-#   JWT_SECRET=$(openssl rand -hex 32)
-#   AI_INTERNAL_KEY=$(openssl rand -hex 32)
-#   GROQ_API_KEY=...        # optionnel (chat)
-docker compose up --build
+# .env (racine du dépôt)
+APP_KEY=$(openssl rand -hex 32)
+JWT_SECRET=$(openssl rand -hex 32)
+AI_INTERNAL_KEY=$(openssl rand -hex 32)
+GROQ_API_KEY=...          # optionnel — description riche (vision) + chat de suivi
+AUDD_API_TOKEN=...        # optionnel — reconnaissance musicale des vidéos
 ```
 
-- Frontend : http://localhost:5173
-- API : http://localhost:3000 (Swagger en dev : http://localhost:3000/docs)
+### Développement local (CPU)
+
+```bash
+docker compose up --build
+```
+- Frontend : http://localhost:5173 · API : http://localhost:3000 (Swagger : `/docs`)
+
+### Production — serveur GPU NVIDIA (derrière un reverse proxy Caddy)
+
+Empiler les **trois** fichiers compose (base + prod + GPU) :
+
+```bash
+docker compose -f docker-compose.yml -f docker-compose.prod.yml -f docker-compose.gpu.yml up -d --build
+```
+- **`prod`** : services liés à `127.0.0.1` (web `:8080`, api `:3000`), `dyper-ai` interne, cookies first-party.
+- **`gpu`** : Torch CUDA (`cu124`) + passthrough GPU NVIDIA, capacité relevée.
+- Reverse proxy, TLS automatique et DNS : voir [docs/HOSTING.md](docs/HOSTING.md).
+
+### Démo API temps réel (`dyper-demo`) — facultatif, projet séparé
+
+SPA indépendante servie sur son propre (sous-)domaine ; elle appelle l'API en **relatif**
+(le reverse proxy proxifie `/api` et `/health` vers `dyper-api`) :
+
+```bash
+docker compose -p dyper-demo -f docker-compose.demo.yml up -d --build
+```
+- Local : http://localhost:8081 · construite avec `VITE_APP_KEY=$APP_KEY` (lu du `.env` racine).
 
 ---
 
 ## Installation manuelle (développement)
 
-Ouvrir **trois terminaux** depuis la racine.
+Ouvrir **trois terminaux** depuis la racine (un **quatrième** pour la démo, facultatif).
 
 ### 1 — dyper-ai (microservice Python)
 
@@ -76,6 +103,15 @@ npm run dev
 ```
 Interface sur http://localhost:5173.
 
+### 4 — dyper-demo (démo API, facultatif)
+
+```bash
+cd dyper-demo
+npm install
+npm run dev                     # VITE_APP_KEY optionnel (défaut dev) ; proxy /api -> :3000
+```
+Démo sur http://localhost:5174 (le proxy Vite renvoie `/api` et `/health` vers dyper-api).
+
 ---
 
 ## Prérequis
@@ -87,10 +123,15 @@ Interface sur http://localhost:5173.
 
 ### Accélération GPU
 
-`dyper-ai` exécute l'inférence (YOLO COCO, YOLO-World, tracking) sur **GPU NVIDIA**. Le service
-**n'est plus prévu pour tourner en local** : en production il est déployé sur un **serveur GPU
-distant** (cloud ou dédié). L'accélération s'active dès que torch-CUDA est installé dans le venv de
-`dyper-ai` ; utiliser **cu128** (compatible des GPU Ampere jusqu'aux Blackwell / RTX 50xx) :
+`dyper-ai` exécute l'inférence (YOLO COCO, YOLO-World, tracking) sur **GPU NVIDIA**.
+
+**En production via Docker** (recommandé), rien à installer à la main : l'overlay
+`docker-compose.gpu.yml` installe la wheel **Torch CUDA (`cu124`)** au build (argument
+`TORCH_INDEX_URL`) et expose le GPU au conteneur (`deploy.resources … driver: nvidia`). Il suffit
+d'empiler ce fichier au lancement (cf. [Démarrage rapide](#démarrage-rapide-docker)).
+
+**En venv local** (sans Docker), installer Torch CUDA manuellement — p. ex. **cu128** (compatible
+des GPU Ampere jusqu'aux Blackwell / RTX 50xx) :
 
 ```bash
 # Sur l'hôte qui exécute dyper-ai (serveur GPU), venv activé (~3,3 Go) :
@@ -115,7 +156,7 @@ internet, YOLO-World (~400 Mo) se télécharge automatiquement.
 | Variable | Défaut | Description |
 |---|---|---|
 | `AI_INTERNAL_KEY` | *(requis)* | Clé partagée avec dyper-api (`X-Internal-Key`) |
-| `YOLO_MODEL_VARIANT` | `yolo26l` | `yolo26l` ou `yolo26x` |
+| `YOLO_MODEL_VARIANT` | `yolo26x` | `yolo26x` (extra-large, défaut) ou `yolo26l` |
 | `YOLO_MODEL_PATH` | `../model` | Dossier des fichiers `.pt` |
 | `YOLO_CONF_THRESHOLD` | `0.25` | Seuil de confiance minimum |
 | `GROQ_API_KEY` | — | **Compréhension multimodale** : description riche par modèle vision (Llama 4 Scout) + transcription audio des vidéos (Whisper). Vide : repli sur la description locale |
@@ -196,8 +237,8 @@ Les fichiers `.pt` ne sont **pas versionnés** (trop volumineux). Les placer dan
 
 ```
 model/
-├── yolo26l.pt    # variante large (défaut)
-└── yolo26x.pt    # variante extra-large (optionnel)
+├── yolo26x.pt    # variante extra-large (défaut)
+└── yolo26l.pt    # variante large, plus léger (optionnel)
 ```
 
 Le service `dyper-ai` échoue au démarrage avec un message explicite si le fichier attendu est absent.
@@ -211,4 +252,4 @@ Le service `dyper-ai` échoue au démarrage avec un message explicite si le fich
 | dyper-api — Qualité | `.github/workflows/dyper-api.yml` | `dyper-api/**` — Biome, audit, tests, build |
 | dyper-ai — Qualité | `.github/workflows/dyper-ai.yml` | `dyper-ai/**` — ruff, mypy, pytest |
 | dyper-web — Qualité | `.github/workflows/dyper-web.yml` | `dyper-web/**` — ESLint, build |
-| Déploiement | `.github/workflows/ci-deploy.yml` | push `dev` / `main` (stubs) |
+| Déploiement | `.github/workflows/ci-deploy.yml` | push `dev` / `main` — SSH + `docker compose` (base + prod + gpu), gardé par secrets serveur |

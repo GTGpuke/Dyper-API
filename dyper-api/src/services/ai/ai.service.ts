@@ -31,12 +31,15 @@ class AiService {
    * @throws {AiProcessingError} Si dyper-ai retourne une erreur de traitement.
    */
   async process(opts: ProcessOptions): Promise<ProcessAiResponse> {
-    const { requestId, fileBuffer, mimetype, imageUrl, videoUrl, prompt, lang, signal } = opts;
+    const { requestId, fileBuffer, mimetype, imageUrl, videoUrl, prompt, lang, fast, signal } =
+      opts;
 
     const payload: Record<string, unknown> = {
       requestId,
       prompt: prompt ?? null,
       lang: lang ?? 'fr',
+      // Temps réel : dyper-ai n'exécute que la détection (sans vision LLM ni vocabulaire ouvert).
+      fast: fast ?? false,
     };
 
     // Mode fichier : le buffer est encodé en base64 ; vidéo si MIME "video/*", image sinon.

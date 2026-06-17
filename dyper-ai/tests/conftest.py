@@ -63,7 +63,7 @@ def _build_mock_results(label: str = "person", xyxy: list[float] | None = None) 
 def _build_mock_runner() -> MagicMock:
     """Construit un mock de YoloRunner simulant une détection « person » (predict)."""
     runner = MagicMock()
-    runner.model_name = "yolo26l"
+    runner.model_name = "yolo26x"
     runner.model = object()  # marque le modèle comme « chargé » pour /health.
     runner.predict.return_value = _build_mock_results()
     return runner

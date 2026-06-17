@@ -61,10 +61,21 @@ export async function createApiKey(): Promise<string> {
   return key.secret as string
 }
 
-/** Analyse une image (frame) authentifiée UNIQUEMENT par la clé API (Authorization: Bearer …). */
-export async function analyzeFrame(apiKey: string, blob: Blob): Promise<AnalysisResult> {
+/**
+ * Analyse une image (frame) authentifiée UNIQUEMENT par la clé API (Authorization: Bearer …).
+ * `realtime=true` -> frame de preview (ni persistée, ni décomptée du quota).
+ * `fast=true` (défaut) -> détection seule (rapide, pour les boîtes en direct).
+ * `fast=false` -> pipeline complet avec description en langage naturel (pour la narration).
+ */
+export async function analyzeFrame(
+  apiKey: string,
+  blob: Blob,
+  fast = true
+): Promise<AnalysisResult> {
   const form = new FormData()
   form.append('file', blob, 'frame.jpg')
+  form.append('realtime', 'true')
+  form.append('fast', String(fast))
   const res = await fetch('/api/v1/analyze', {
     method: 'POST',
     headers: { Authorization: `Bearer ${apiKey}` },
